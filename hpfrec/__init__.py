@@ -646,11 +646,11 @@ class HPF:
             observations that were used to calculate it.
         """
         assert self.is_fitted
-        self._process_valset(input_df, self.reindex, valset=False)
+        self._process_valset(input_df, valset=False)
         self.ncores = cython_loops.cast_int(self.ncores)
-        out = {'llk': cython_loops.calc_llk(self.val_set.Count,
-                                            self.val_set.UserId,
-                                            self.val_set.ItemId,
+        out = {'llk': cython_loops.calc_llk(self.val_set.Count.values,
+                                            self.val_set.UserId.values,
+                                            self.val_set.ItemId.values,
                                             self.Theta,
                                             self.Beta,
                                             self.k,

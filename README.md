@@ -57,9 +57,11 @@ from hpfrec import HPF
 nusers = 10**2
 nitems = 10**2
 nobs = 10**4
+
+np.random.seed(1)
 counts_df = pd.DataFrame({
 	'UserId' : np.random.randint(nusers, size=nobs),
-	'ItemId' : np.random.randint(items, size=nobs),
+	'ItemId' : np.random.randint(nitems, size=nobs),
 	'Count' : np.random.gamma(1,1, size=nobs)
 	})
 
@@ -95,7 +97,7 @@ recommender.fit(counts_df, val_set=counts_df.sample(10**3))
 
 ## Making predictions
 recommender.topN(user=10, n=10, exclude_seen=True)
-recommender.topN(user=10, n=10, exclude_seen=False, items_pool=np.array([1,2,3,4,5,6,100]))
+recommender.topN(user=10, n=10, exclude_seen=False, items_pool=np.array([1,2,3,4]))
 recommender.predict(user=10, item=11)
 recommender.predict(user=[10,10,10], item=[1,2,3])
 recommender.predict(user=[10,11,12], item=[4,5,6])
