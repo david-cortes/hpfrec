@@ -4,6 +4,8 @@ This is a Python package for hierarchical Poisson factorization, a form of proba
 
 Supports parallelization (through OpenMP) and different stopping criteria for the coordinate-ascent procedure. The bottleneck computations are written in fast Cython code.
 
+As a point of reference, fitting the model to the full MillionSong TasteProfile dataset (48M records from 370K users on 1M items) took around 40 minutes on a server from Google Cloud with Skylake CPU when using 24 cores.
+
 ## Model description
 
 The model consists in producing a non-negative low-rank matrix factorization of counts data (such as number of times each user played each song in some internet service) `Y ~= UV'`, produced by a generative model as follows:
