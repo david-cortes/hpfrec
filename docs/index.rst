@@ -3,8 +3,23 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to hpfrec's documentation!
-==================================
+Hierarchical Poisson Factorization
+=================================
+
+This is the documentation page for the python package *hpfrec*. For 
+more details, see the project's GitHub page:
+
+`<https://www.github.com/david-cortes/hpfrec/>`_
+
+Installation
+=================================
+Package is available on PyPI, can be installed with
+::
+
+    pip install hpfrec
+
+Documentation
+=============
 
 .. toctree::
 	:maxdepth: 2
