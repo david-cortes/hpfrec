@@ -120,16 +120,16 @@ Documentation is available at readthedocs: [http://hpfrec.readthedocs.io/en/late
 
 It is also internally documented through docstrings (e.g. you can try `help(hpfrec.HPF))`, `help(hpfrec.HPF.fit)`, etc.
 
-## Improving performance
+## Improving speed
 
-For better performance, use scipy and numpy libraries compiled against MKL. In Windows, you can find Python wheels (installable with pip after downloading them) of numpy and scipy precompiled with MKL in [Christoph Gohlke's website](https://www.lfd.uci.edu/~gohlke/pythonlibs/). In Linux and Mac, these come by default in Anaconda installations (but are likely to get overwritten if you enable `conda-forge`). In some small experiments from my side, this yields a near 4x speed improvement compared to using free linear algebra libraries.
+For faster fitting and predictions, use scipy and numpy libraries compiled against MKL. In Windows, you can find Python wheels (installable with pip after downloading them) of numpy and scipy precompiled with MKL in [Christoph Gohlke's website](https://www.lfd.uci.edu/~gohlke/pythonlibs/). In Linux and Mac, these come by default in Anaconda installations (but are likely to get overwritten if you enable `conda-forge`). In some small experiments from my side, this yields a near 4x speedup compared to using free linear algebra libraries.
 
-The constructor for HPF allows some parameters to make it run faster (if you know what you're doing): these are `allow_inconsistent_math=True`, `stop_crit='diff-norm'`, `reindex=False`, and, `verbose=False`. See the documentation for more details.
+The constructor for HPF allows some parameters to make it run faster (if you know what you're doing): these are `allow_inconsistent_math=True`, `stop_crit='diff-norm'`, `reindex=False`, `verbose=False`. See the documentation for more details.
 
 ## Troubleshooting
 
-* Package uses only one CPU core: make sure that your C compiler supports OpenMP (both Visual Studio and GCC do).
-* Error with `vcvarsall.bat`: see installation instructions (you need to configure your Python installation to use Visual Studio and set the correct paths to libraries). If you are using Python 2, try installing under a Python 3 environment and the problem might disappear.
+* Package uses only one CPU core: make sure that your C compiler supports OpenMP (both Visual Studio and GCC do in default installations, but with MinGW you might need additional modules).
+* Error with `vcvarsall.bat`: see installation instructions (you need to configure your Python installation to use Visual Studio and set the correct paths to libraries). If you are using Python 2, try installing under a Python 3 environment instead and the problem might disappear.
 * Parameters turn to NaN: you might have run into an unlucky parmeter initialization. Try using a different random seed, or changing the number of latent factors (`k`). If passing `reindex=False`, try changing to `reindex=True`.
 
 The package has only been tested under Python 3.6.

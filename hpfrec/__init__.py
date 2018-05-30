@@ -109,7 +109,9 @@ class HPF:
         Folder where to save all model parameters as csv files.
     produce_dicts : bool
         Whether to produce Python dictionaries for users and items, which
-        are used by the prediction API of this package.
+        are used by the prediction API of this package. You can still predict without
+        them, but it might take some additional miliseconds (or more depending on the
+        number of users and items).
     
     Attributes
     ----------
@@ -292,13 +294,11 @@ class HPF:
         self._fit()
         
         ## after terminating optimization
-        if not self.produce_dicts:
-            return True
-
         if self.keep_data:
             self._store_metadata()
-        self.user_dict_ = {self.user_mapping_[i]:i for i in range(self.user_mapping_.shape[0])}
-        self.item_dict_ = {self.item_mapping_[i]:i for i in range(self.item_mapping_.shape[0])}
+        if self.produce_dicts:
+            self.user_dict_ = {self.user_mapping_[i]:i for i in range(self.user_mapping_.shape[0])}
+            self.item_dict_ = {self.item_mapping_[i]:i for i in range(self.item_mapping_.shape[0])}
         self.is_fitted = True
         del self.input_df
         del self.val_set
@@ -373,10 +373,8 @@ class HPF:
             raise ValueError("'val_set' must be a pandas data frame or a numpy array")
             
         if self.reindex:
-            self.val_set['UserId'] = pd.Categorical.from_codes(self.val_set.UserId, self.user_mapping_).\
-                                        get_values()
-            self.val_set['ItemId'] = pd.Categorical.from_codes(self.val_set.ItemId, self.user_mapping_).\
-                                        get_values()
+            self.val_set['UserId'] = pd.Categorical(self.val_set.UserId, self.user_mapping_).codes
+            self.val_set['ItemId'] = pd.Categorical(self.val_set.ItemId, self.user_mapping_).codes
             self.val_set = self.val_set.loc[(~self.val_set.UserId.isnull()) & (~self.val_set.ItemId.isnull())]
             if self.val_set.shape[0] == 0:
                 if valset:
@@ -481,44 +479,76 @@ class HPF:
         if item.__class__.__name__=='Series':
             item = item.values
             
-        if isinstance(user, np.ndarray):  
+        if isinstance(user, np.ndarray):
             if len(user.shape) > 1:
                 user = user.reshape(-1)
+            assert user.shape[0] > 0
             if self.reindex:
-                try:
-                    user = pd.Series(user).map(lambda x: self.user_dict_[x])
-                except:
-                    raise ValueError("Can only predict for users who were in the training set.")
+                if user.shape[0] > 1:
+                    user = pd.Categorical(user, self.user_mapping_).codes
+                else:
+                    if self.user_dict_ is not None:
+                        try:
+                            user = self.user_dict_[user]
+                        except:
+                            user = -1
+                    else:
+                        user = pd.Categorical(user, self.user_mapping_).codes[0]
         else:
             if self.reindex:
-                try:
-                    user = self.user_dict_[user]
-                except:
-                    raise ValueError("Can only predict for users who were in the training set.")
+                if self.user_dict_ is not None:
+                    try:
+                        user = self.user_dict_[user]
+                    except:
+                        user = -1
+                else:
+                    user = pd.Categorical(np.array([user]), self.user_mapping_).codes[0]
             user = np.array([user])
             
-        if isinstance(item, np.ndarray):  
+        if isinstance(item, np.ndarray):
             if len(item.shape) > 1:
                 item = item.reshape(-1)
+            assert item.shape[0] > 0
             if self.reindex:
-                try:
-                    item = pd.Series(item).map(lambda x: self.item_dict_[x])
-                except:
-                    raise ValueError("Can only predict for items that were in the training set.")
+                if item.shape[0] > 1:
+                    item = pd.Categorical(item, self.item_mapping_).codes
+                else:
+                    if self.item_dict_ is not None:
+                        try:
+                            item = self.item_dict_[item]
+                        except:
+                            item = -1
+                    else:
+                        item = pd.Categorical(item, self.item_mapping_).codes[0]
         else:
             if self.reindex:
-                try:
-                    item = self.item_dict_[item]
-                except:
-                    raise ValueError("Can only predict for items that were in the training set.")
+                if self.item_dict_ is not None:
+                    try:
+                        item = self.item_dict_[item]
+                    except:
+                        item = -1
+                else:
+                    item = pd.Categorical(np.array([item]), self.item_mapping_).codes[0]
             item = np.array([item])
 
         assert user.shape[0] == item.shape[0]
         
         if user.shape[0] == 1:
-            return self.Theta[user].dot(self.Beta[item].T)
+            if (user[0] == -1) or (item[0] == -1):
+                return np.nan
+            else:
+                return self.Theta[user].dot(self.Beta[item].T).reshape(-1)[0]
         else:
-            return (self.Theta[user] * self.Beta[item]).sum(axis=1)
+            nan_entries = (user == -1) | (item == -1)
+            if nan_entries.sum() == 0:
+                return (self.Theta[user] * self.Beta[item]).sum(axis=1)
+            else:
+                non_na_user = user[~nan_entries]
+                non_na_item = item[~nan_entries]
+                out = np.empty(user.shape[0], dtype=self.Theta.dtype)
+                out[~nan_entries] = (self.Theta[non_na_user] * self.Beta[non_na_item]).sum(axis=1)
+                out[nan_entries] = np.nan
+                return out
         
     
     def topN(self, user, n=10, exclude_seen=True, items_pool=None):
@@ -549,10 +579,15 @@ class HPF:
             n = int(n)
         assert isinstance(n ,int)
         if self.reindex:
-            try:
-                user = self.user_dict_[user]
-            except:
-                raise ValueError("Can only predict for users who were in the training set.")
+            if self.produce_dicts:
+                try:
+                    user = self.user_dict_[user]
+                except:
+                    raise ValueError("Can only predict for users who were in the training set.")
+            else:
+                user = pd.Categorical(np.array([user]), self.user_mapping_).codes[0]
+                if user == -1:
+                    raise ValueError("Can only predict for users who were in the training set.")
         if exclude_seen and not self.keep_data:
             raise Exception("Can only exclude seen items when passing 'keep_data=True' to .fit")
             
@@ -587,10 +622,20 @@ class HPF:
                 if len(items_pool.shape) > 1:
                     items_pool = items_pool.reshape(-1)
                 if self.reindex:
-                    try:
-                        items_pool_reind = pd.Series(items_pool).map(lambda x: self.item_dict_[x])
-                    except:
-                        raise ValueError("Can only predict for items that were in the training set.")
+                    items_pool_reind = pd.Categorical(items_pool, self.item_mapping_).codes
+                    nan_ix = (items_pool_reind == -1)
+                    if nan_ix.sum() > 0:
+                        items_pool_reind = items_pool_reind[~nan_ix]
+                        msg = "There were " + ("%d" % int(nan_ix.sum())) + " entries from 'item_pool'"
+                        msg += "that were not in the training data and will be exluded."
+                        warnings.warn(msg)
+                    del nan_ix
+                    if items_pool_reind.shape[0] == 0:
+                        raise ValueError("No items to recommend.")
+                    elif items_pool_reind.shape[0] == 1:
+                        raise ValueError("Only 1 item to recommend.")
+                    else:
+                        pass
             else:
                 raise ValueError("'items_pool' must be an array.")
 
