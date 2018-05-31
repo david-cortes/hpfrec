@@ -296,7 +296,7 @@ class HPF:
         ## after terminating optimization
         if self.keep_data:
             self._store_metadata()
-        if self.produce_dicts:
+        if self.produce_dicts and self.reindex:
             self.user_dict_ = {self.user_mapping_[i]:i for i in range(self.user_mapping_.shape[0])}
             self.item_dict_ = {self.item_mapping_[i]:i for i in range(self.item_mapping_.shape[0])}
         self.is_fitted = True
