@@ -120,7 +120,7 @@ Documentation is available at readthedocs: [http://hpfrec.readthedocs.io/en/late
 
 It is also internally documented through docstrings (e.g. you can try `help(hpfrec.HPF))`, `help(hpfrec.HPF.fit)`, etc.
 
-## Improving speed
+## Speeding up optimization procedure
 
 For faster fitting and predictions, use scipy and numpy libraries compiled against MKL. In Windows, you can find Python wheels (installable with pip after downloading them) of numpy and scipy precompiled with MKL in [Christoph Gohlke's website](https://www.lfd.uci.edu/~gohlke/pythonlibs/). In Linux and Mac, these come by default in Anaconda installations (but are likely to get overwritten if you enable `conda-forge`). In some small experiments from my side, this yields a near 4x speedup compared to using free linear algebra libraries.
 
