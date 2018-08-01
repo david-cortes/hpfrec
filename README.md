@@ -2,9 +2,11 @@
 
 This is a Python package for hierarchical Poisson factorization, a form of probabilistic matrix factorization used for recommender systems with implicit count data, based on the paper _Scalable Recommendation with Hierarchical Poisson Factorization (P. Gopalan, 2015)_.
 
-Supports parallelization (through OpenMP) and different stopping criteria for the coordinate-ascent procedure. The bottleneck computations are written in fast Cython code.
+Supports parallelization and different stopping criteria for the coordinate-ascent procedure. The bottleneck computations are written in fast Cython code.
 
 As a point of reference, fitting the model to the full MillionSong TasteProfile dataset (48M records from 370K users on 1M items) took around 40 minutes on a server from Google Cloud with Skylake CPU when using 24 cores.
+
+Although the package was created with recommender systems in mind, it can also be used for other domains, e.g. as a faster alternative to LDA (Latent Ditichlet Allocation), where users become documents and items become words.
 
 ## Model description
 
@@ -64,8 +66,9 @@ np.random.seed(1)
 counts_df = pd.DataFrame({
 	'UserId' : np.random.randint(nusers, size=nobs),
 	'ItemId' : np.random.randint(nitems, size=nobs),
-	'Count' : np.random.gamma(1,1, size=nobs)
+	'Count' : np.random.gamma(1,1, size=nobs).astype('int32')
 	})
+counts_df = counts_df.loc[counts_df.Count > 0].reset_index(drop=True)
 
 ## Initializing the model object
 recommender = HPF()
@@ -106,6 +109,24 @@ recommender.predict(user=[10,11,12], item=[4,5,6])
 
 ## Evaluating model likelihood
 recommender.eval_llk(counts_df, full_llk=True)
+
+## Determining latent factors for a new user,
+## given her item interactions
+nobs_new = 20
+np.random.seed(2)
+counts_df_new = pd.DataFrame({
+	'ItemId' : np.random.randint(nitems, size=nobs_new),
+	'Count' : np.random.gamma(1,1, size=nobs_new).astype('int32')
+	})
+counts_df_new = counts_df_new.loc[counts_df_new.Count > 0].reset_index(drop=True)
+recommender.predict_factors(counts_df_new)
+
+## Adding a user without refitting the whole model
+recommender.add_user(user_id=nusers+1, counts_df=counts_df_new)
+
+## Updating data for an existing user without refitting the whole model
+chosen_user = counts_df.UserId.values[10]
+recommender.add_user(user_id=chosen_user, counts_df=counts_df_new, update_existing=True)
 ```
 
 If passing `reindex=True`, all user and item IDs that you pass to `.fit` will be reindexed internally (they need to be hashable types like `str`, `int` or `tuple`), and you  can use these same IDs to make predictions later. The IDs returned by `predict` and `topN` are these IDs passed to `.fit` too.

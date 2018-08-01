@@ -1,7 +1,7 @@
 import pandas as pd, numpy as np
 import multiprocessing, os, warnings
 import hpfrec.cython_loops as cython_loops
-import ctypes
+import ctypes, types, inspect
 pd.options.mode.chained_assignment = None
 
 class HPF:
@@ -37,7 +37,7 @@ class HPF:
     you can pass produce_dicts=False and pass a folder where to save them in csv format (they are also
     available as numpy arrays in this object's Theta and Beta attributes). Otherwise, the model
     will create Python dictionaries with entries for each user and item, which can take quite a bit of
-    RAM memory. These are required for making predictions later through this package's API.
+    RAM memory. These can speed up predictions later through this package's API.
 
     Passing verbose=True will also print RMSE (root mean squared error) at each iteration.
     For slighly better speed pass verbose=False once you know what a good threshold should be
@@ -91,7 +91,8 @@ class HPF:
     stop_thr : float
         Threshold for proportion increase in log-likelihood or l2-norm for difference between matrices.
     maxiter : int
-        Maximum number of iterations for which to run the optimization procedure.
+        Maximum number of iterations for which to run the optimization procedure. Recommended to use a lower
+        number when passing a batch size.
     reindex : bool
         Whether to reindex data internally.
     random_seed : int or None
@@ -109,9 +110,15 @@ class HPF:
         Folder where to save all model parameters as csv files.
     produce_dicts : bool
         Whether to produce Python dictionaries for users and items, which
-        are used by the prediction API of this package. You can still predict without
+        are used to speed-up the prediction API of this package. You can still predict without
         them, but it might take some additional miliseconds (or more depending on the
         number of users and items).
+    keep_all_objs : bool
+        Whether to keep intermediate objects/variables in the object that are not necessary for
+        predictions - these are: Gamma_shp, Gamma_rte, Lambda_shp, Lambda_rte, kappa_rte, tau_rte
+        (when passing True here, the model object will have these extra attributes too).
+        Without these objects, it's not possible to call functions that alter the model parameters
+        given new information after it's already fit.
     
     Attributes
     ----------
@@ -141,7 +148,7 @@ class HPF:
                  stop_crit='train-llk', check_every=10, stop_thr=1e-3,
                  maxiter=100, reindex=True, random_seed = None,
                  allow_inconsistent_math=False, verbose=True, full_llk=True,
-                 keep_data=True, save_folder=None, produce_dicts=True):
+                 keep_data=True, save_folder=None, produce_dicts=True, keep_all_objs=True):
 
         ## checking input
         assert isinstance(k, int)
@@ -215,7 +222,6 @@ class HPF:
         if (stop_crit == 'maxiter') and (not verbose):
             check_every = 0
         
-        
         ## storing these parameters
         self.k = k
         self.a = a
@@ -238,6 +244,7 @@ class HPF:
         self.verbose = verbose
         self.produce_dicts = bool(produce_dicts)
         self.full_llk = bool(full_llk)
+        self.keep_all_objs = bool(keep_all_objs)
         
         ## initializing other attributes
         self.Theta = None
@@ -291,7 +298,7 @@ class HPF:
         else:
             self.val_set = None
             
-        self._fit()
+        self.niter = self._fit()
         
         ## after terminating optimization
         if self.keep_data:
@@ -354,6 +361,12 @@ class HPF:
         self.input_df['Count'] = self.input_df.Count.astype('float32')
         self.input_df['UserId'] = self.input_df.UserId.astype(ctypes.c_int)
         self.input_df['ItemId'] = self.input_df.ItemId.astype(ctypes.c_int)
+
+        if self.batch_size is not None:
+            if self.nusers < self.batch_size:
+                warnings.warn("Batch size passed is larger than number of users. Will set it to nusers/20.")
+                self.batch_size = ctypes.c_int(self.nusers/20)
+
         return None
         
     def _process_valset(self, val_set, valset=True):
@@ -439,7 +452,7 @@ class HPF:
         else:
             use_valset = cython_loops.cast_int(1)
 
-        self.niter = cython_loops.fit_hpf(
+        self.niter, temp = cython_loops.fit_hpf(
             self.a, self.a_prime, self.b_prime,
             self.c, self.c_prime, self.d_prime,
             self.input_df.Count.values, self.input_df.UserId.values, self.input_df.ItemId.values,
@@ -449,8 +462,209 @@ class HPF:
             self.ncores, cython_loops.cast_int(self.allow_inconsistent_math),
             use_valset,
             self.val_set.Count.values, self.val_set.UserId.values, self.val_set.ItemId.values,
-            cython_loops.cast_int(self.full_llk)
+            cython_loops.cast_int(self.full_llk), cython_loops.cast_int(self.keep_all_objs)
             )
+
+        if self.keep_all_objs:
+            self.Gamma_shp = temp[0]
+            self.Gamma_rte = temp[1]
+            self.Lambda_shp = temp[2]
+            self.Lambda_rte = temp[3]
+            self.kappa_rte = temp[4]
+            self.tau_rte = temp[5]
+
+    def _process_data_single(self, counts_df):
+        assert self.is_fitted
+        assert self.keep_all_objs
+        if isinstance(counts_df, np.ndarray):
+            assert len(counts_df.shape) > 1
+            assert counts_df.shape[1] >= 2
+            counts_df = counts_df.values[:,:2]
+            counts_df.columns = ['ItemId', "Count"]
+            
+        if counts_df.__class__.__name__ == 'DataFrame':
+            assert counts_df.shape[0] > 0
+            assert 'ItemId' in counts_df.columns.values
+            assert 'Count' in counts_df.columns.values
+            counts_df = counts_df[['ItemId', 'Count']]
+        else:
+            raise ValueError("'counts_df' must be a pandas data frame or a numpy array")
+            
+        if self.reindex:
+            if self.produce_dicts:
+                try:
+                    counts_df['ItemId'] = counts_df.ItemId.map(lambda x: self.item_dict_[user])
+                except:
+                    raise ValueError("Can only make calculations for items that were in the training set.")
+            else:
+                counts_df['ItemId'] = pd.Categorical(counts_df.ItemId.values, self.item_mapping_).codes
+                if (counts_df.ItemId == -1).sum() > 0:
+                    raise ValueError("Can only make calculations for items that were in the training set.")
+
+        counts_df['ItemId'] = counts_df.ItemId.values.astype(ctypes.c_int)
+        counts_df['Count'] = counts_df.ItemId.values.astype(ctypes.c_float)
+        return counts_df
+
+    def predict_factors(self, counts_df, maxiter=10, nthreads=1, random_seed=1, stop_thr=1e-3, return_all=False):
+        """
+        Gets latent factors for a user given her item counts
+
+        This is similar to obtaining topics for a document in LDA.
+
+        Note
+        ----
+        This function will NOT modify any of the item parameters.
+
+        Note
+        ----
+        This function only works with one user at a time.
+
+        Parameters
+        ----------
+        counts_df : DataFrame or array (nsamples, 2)
+            Data Frame with columns 'ItemId' and 'Count', indicating the non-zero item counts for a
+            user for whom it's desired to obtain latent factors.
+        maxiter : int
+            Maximum number of iterations to run.
+        nthreads : int
+            Number of threads to use. With data for only one user, it's unlikely that using
+            multiple threads would give a significant speed-up, and it might even end up making
+            the function slower due to the overhead.
+        random_seed : int
+            Random seed used to initialize parameters.
+        stop_thr : float
+            If the l2-norm of the difference between values of Theta_{u} between interations is less
+            than this, it will stop. Smaller values of 'k' should require smaller thresholds.
+        return_all : bool
+            Whether to return also the intermediate calculations (Gamma_shp, Gamma_rte). When
+            passing True here, the output will be a tuple containing (Theta, Gamma_shp, Gamma_rte, Phi)
+
+        Returns
+        -------
+        latent_factors : array (k,)
+            Calculated latent factors for the user, given the input data
+        """
+        ## processing the data
+        counts_df = self._process_data_single(counts_df)
+
+        ## calculating the latent factors
+        Theta = np.empty(k, dtype='float32')
+        temp = cython_loops.calc_user_factors(
+                                 self.a, self.a_prime, self.b_prime,
+                                 self.c, self.c_prime, self.d_prime,
+                                 counts_df.Count.values,
+                                 counts_df.ItemId.values,
+                                 Theta, self.Beta,
+                                 self.Lambda_shp,
+                                 self.Lambda_rte,
+                                 ctypes.c_int(counts_df.shape[0]), self.k,
+                                 ctypes.c_int(maxiter), ctypes.c_int(nthreads),
+                                 ctypes.c_int(random_seed), ctypes.c_float(stop_thr),
+                                 ctypes.c_int(bool(return_all))
+                                 )
+
+        if return_all:
+            return (Theta, temp[0], temp[1], temp[2])
+        else:
+            return Theta
+
+    def add_user(self, user_id, counts_df, update_existing=False, maxiter=10, nthreads=1, random_seed=1, stop_thr=1e-3):
+        """
+        Add a new user to the model or update parameters for a user according to new data
+        
+        Note
+        ----
+        This function will NOT modify any of the item parameters.
+
+        Note
+        ----
+        This function only works with one user at a time.
+
+        Note
+        ----
+        For betters results, refit the model again from scratch.
+
+        Parameters
+        ----------
+        user_id : obj
+            Id to give to be user (when adding a new one) or Id of the existing user whose parameters are to be
+            updated according to the data in 'counts_df'. **Make sure that the data type is the same that was passed
+            in the training data, so if you have integer IDs, don't pass a string as ID**.
+        counts_df : data frame or array (nsamples, 2)
+            Data Frame with columns 'ItemId' and 'Count'. If passing a numpy array, will take the first two columns
+            in that order. Data containing user/item interactions **from one user only** for which to add or update
+            parameters. Note that you need to pass *all* the user-item interactions for this user when making an update,
+            not just the new ones.
+        update_existing : bool
+            Whether this should be an update of the parameters for an existing user (when passing True), or
+            an addition of a new user that was not in the model before (when passing False).
+        maxiter : int
+            Maximum number of iterations to run.
+        nthreads : int
+            Number of threads to use. With data for only one user, it's unlikely that using
+            multiple threads would give a significant speed-up, and it might even end up making
+            the function slower due to the overhead.
+        random_seed : int
+            Random seed used to initialize parameters.
+        stop_thr : float
+            If the l2-norm of the difference between values of Theta_{u} between interations is less
+            than this, it will stop. Smaller values of 'k' should require smaller thresholds.
+
+        Returns
+        -------
+        True : bool
+            Will return True if the process finishes successfully.
+        """
+        if update_existing:
+            ## checking that the user already exists
+            if self.produce_dicts:
+                assert user in self.user_dict_
+                if self.reindex:
+                    user_id = self.user_dict_[user]
+            else:
+                assert user in self.user_mapping_
+                if self.reindex:
+                    user_id = pd.Categorical(np.array([user]), self.user_mapping_).codes[0]
+            if not self.reindex:
+                user_id = user
+
+        ## processing the data
+        counts_df = self._process_data_single(counts_df)
+        
+        ## calculating the latent factors
+        Theta = np.empty(k, dtype='float32')
+        temp = cython_loops.calc_user_factors(
+                             self.a, self.a_prime, self.b_prime,
+                             self.c, self.c_prime, self.d_prime,
+                             counts_df.Count.values,
+                             counts_df.ItemId.values,
+                             Theta, self.Beta,
+                             self.Lambda_shp,
+                             self.Lambda_rte,
+                             ctypes.c_int(counts_df.shape[0]), self.k,
+                             ctypes.c_int(maxiter), ctypes.c_int(nthreads),
+                             ctypes.c_int(random_seed), ctypes.c_float(stop_thr),
+                             ctypes.c_int(self.keep_all_objs)
+                             )
+
+        ## adding the data to the model
+        if update_existing:
+            self.Theta[user_id] = Theta
+            if self.keep_all_objs:
+                self.Gamma_shp[user_id] = temp[0]
+                self.Gamma_rte[user_id] = temp[1]
+        else:
+            if self.reindex:
+                new_id = self.user_mapping_.shape[0]
+                self.user_mapping_ = np.r_[self.user_mapping_, user_id]
+                if self.produce_dicts:
+                    self.user_dict_[user_id] = new_id
+            self.Theta = np.r_[self.Theta, Theta]
+            if self.keep_all_objs:
+                self.Gamma_shp = np.r_[self.Gamma_shp, temp[0]]
+                self.Gamma_rte = np.r_[self.Gamma_rte, temp[1]]
+
+        return True
     
     def predict(self, user, item):
         """

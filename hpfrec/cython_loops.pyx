@@ -34,7 +34,7 @@ def fit_hpf(float a, float a_prime, float b_prime,
 			np.ndarray[float, ndim=1] Yval,
 			np.ndarray[int, ndim=1] ix_u_val,
 			np.ndarray[int, ndim=1] ix_i_val,
-			int full_llk):
+			int full_llk, int keep_all_objs):
 	## useful information
 	cdef int nU = <int> Theta.shape[0]
 	cdef int nI = <int> Beta.shape[0]
@@ -100,6 +100,7 @@ def fit_hpf(float a, float a_prime, float b_prime,
 	### Main loop
 	cdef int i
 	for i in range(maxiter):
+
 		update_phi(&Gamma_shp[0,0], &Gamma_rte[0,0], &Lambda_shp[0,0], &Lambda_rte[0,0],
 						  &phi[0,0], &Y[0], k,
 						  &ix_u[0], &ix_i[0], nY, nthreads)
@@ -107,9 +108,10 @@ def fit_hpf(float a, float a_prime, float b_prime,
 		Gamma_rte = k_shp/k_rte + Beta.sum(axis=0, keepdims=True)
 
 		### Comment: don't put this part before the update for Gamma rate
-		Gamma_shp = np.zeros((Gamma_shp.shape[0], Gamma_shp.shape[1]), dtype='float32')
-		Lambda_shp = np.zeros((Lambda_shp.shape[0], Lambda_shp.shape[1]), dtype='float32')
+		Gamma_shp[:,:] = a
+		Lambda_shp[:,:] = c
 		if par_sh>0:
+			## this produces inconsistent results across runs, so there's a non-parallel version too
 			update_G_n_L_sh_par(&Gamma_shp[0,0], &Lambda_shp[0,0],
 							  &phi[0,0], k,
 							  &ix_u[0], &ix_i[0], nY, nthreads)
@@ -117,8 +119,7 @@ def fit_hpf(float a, float a_prime, float b_prime,
 			update_G_n_L_sh(&Gamma_shp[0,0], &Lambda_shp[0,0],
 							  &phi[0,0], k,
 							  &ix_u[0], &ix_i[0], nY)
-		Gamma_shp += a
-		Lambda_shp += c
+
 		Theta[:,:] = Gamma_shp/Gamma_rte
 
 		### Comment: these operations are pretty fast in numpy, so I preferred not to parallelize them.
@@ -167,6 +168,7 @@ def fit_hpf(float a, float a_prime, float b_prime,
 								break
 							last_crit = errs[0]
 
+	## last metrics once it finishes optimizing
 	if (stop_crit == 'diff-norm') or (stop_crit == 'maxiter'):
 		if verbose>0:
 			if has_valset:
@@ -197,14 +199,71 @@ def fit_hpf(float a, float a_prime, float b_prime,
 		np.savetxt(os.path.join(save_folder, "Lambda_rte.csv"), Lambda_rte, fmt="%.10f", delimiter=',')
 		np.savetxt(os.path.join(save_folder, "kappa_rte.csv"), k_rte.reshape(-1,1), fmt="%.10f", delimiter=',')
 		np.savetxt(os.path.join(save_folder, "tau_rte.csv"), t_rte.reshape(-1,1), fmt="%.10f", delimiter=',')
+		np.savetxt(os.path.join(save_folder, "Phi.csv"), phi/Y, fmt="%.10f", delimiter=',')
 
-	return None
+	## returning objects as needed
+	if keep_all_objs:
+		temp = None
+	else:
+		temp = (Gamma_shp, Gamma_rte, Lambda_shp, Lambda_rte, k_rte, t_rte)
+	return i, temp
+
+
+### Function for updates without a complete refit
+##################################################
+def calc_user_factors(float a, float a_prime, float b_prime,
+					  float c, float c_prime, float d_prime,
+					  np.ndarray[float, ndim=1] Y,
+					  np.ndarray[int, ndim=1] ix_i,
+					  np.ndarray[float, ndim=1] Theta,
+					  np.ndarray[float, ndim=2] Beta,
+					  np.ndarray[float, ndim=2] Lambda_shp,
+					  np.ndarray[float, ndim=2] Lambda_rte,
+					  int nY, int k, int maxiter, int nthreads, int random_seed,
+					  float stop_thr, int return_all):
+	
+	## initializing parameters
+	cdef float k_shp = a_prime + k*a
+	cdef float t_shp = c_prime + k*c
+	if random_seed > 0:
+		np.random.seed(random_seed)
+	Theta[:] = np.random.gamma(a, 1/b_prime, size=k).astype('float32')
+	cdef float k_rte = b_prime + Theta.sum()
+	cdef np.ndarray[float, ndim=1] Gamma_rte = np.random.gamma(a_prime, b_prime/a_prime, size=1).astype('float32') + \
+											Beta.sum(axis=0)
+	cdef np.ndarray[float, ndim=1] Gamma_shp = Gamma_rte * Theta * np.random.uniform(low=.85, high=1.15, size=k).astype('float32')
+	np.nan_to_num(Gamma_shp, copy=False)
+	np.nan_to_num(Gamma_rte, copy=False)
+	cdef np.ndarray[float, ndim=2] phi = np.empty((nY, k), dtype='float32')
+	cdef float add_k_rte = a_prime/b_prime
+	cdef np.ndarray[float, ndim=1] Theta_prev = Theta.copy()
+	cdef np.ndarray[int, ndim=1] u_repeated = np.ones(nY, dtype=ctypes.c_int)
+
+	## running the loop
+	for i in range(maxiter):
+		update_phi(&Gamma_shp[0], &Gamma_rte[0], &Lambda_shp[0,0], &Lambda_rte[0,0],
+				   &phi[0,0], &Y[0], k, &u_repeated[0], &ix_i[0], nY, nthreads)
+		Gamma_rte = k_shp/k_rte + Beta.sum(axis=0, keepdims=True)
+		Gamma_shp = a + phi.sum(axis=0)
+		Theta[:] = Gamma_shp / Gamma_rte
+		k_rte = add_k_rte + Theta.sum()
+
+		## checking for early stop
+		if np.linalg.norm(Theta - Theta_prev) < stop_thr:
+			break
+		Theta_prev = Theta.copy()
+
+	if return_all:
+		return Gamma_shp, Gamma_rte, phi/Y
+	else:
+		return None
+
 
 ### External llk function
 #########################
 def calc_llk(np.ndarray[float, ndim=1] Y, np.ndarray[int, ndim=1] ix_u, np.ndarray[int, ndim=1] ix_i,
 			 np.ndarray[float, ndim=2] Theta, np.ndarray[float, ndim=2] Beta, int k, int nthreads, int full_llk):
-	cdef np.ndarray[long double, ndim=1] o = np.zeros(1, dtype='float128')
+	cdef np.ndarray[long double, ndim=1] o = np.zeros(1, dtype=ctypes.c_longdouble)
 	llk_plus_rmse(&Theta[0,0], &Beta[0,0],
 			 &Y[0], &ix_u[0], &ix_i[0],
 			 <int> Y.shape[0], k,
