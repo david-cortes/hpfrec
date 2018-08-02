@@ -19,8 +19,46 @@ def cast_int(n):
 def cast_np_int(a):
 	return a.astype(int)
 
-## Main function
-################
+### Random initializer for parameters
+#####################################
+def initialize_parameters(Theta, Beta, random_seed,
+						  a, a_prime, b_prime, c, c_prime, d_prime):
+	### Comment: I'm not entirely sure how to initialize the variables according to the prior, and the
+	### initialization here differs from the implementation of the paper's author.
+
+	nU = Theta.shape[0]
+	nI = Beta.shape[0]
+	k = Theta.shape[1]
+	
+	if random_seed > 0:
+		np.random.seed(random_seed)
+	Theta[:,:] = np.random.gamma(a, 1/b_prime, size=(nU, k)).astype('float32')
+	Beta[:,:] = np.random.gamma(c, 1/d_prime, size=(nI, k)).astype('float32')
+
+	### Comment: the code above seems to give worse likelihood in the first iterations, but better
+	### local optima in the end, compared to initializing them like this:
+		# cdef np.ndarray[double, ndim=2] ksi = np.random.gamma(a_prime, b_prime/a_prime, size=(nU,1))
+		# Theta[:,:] = np.random.gamma(a, 1/ksi, size=(nU, k)).astype('float32')
+		# cdef np.ndarray[double, ndim=2] eta = np.random.gamma(c_prime, d_prime/c_prime, size=(nI,1))
+		# Beta[:,:] = np.random.gamma(c, 1/eta, size=(nI, k)).astype('float32')
+
+	k_rte = b_prime + Theta.sum(axis=1, keepdims=True)
+	t_rte = d_prime + Beta.sum(axis=1, keepdims=True)
+
+	Gamma_rte = np.random.gamma(a_prime, b_prime/a_prime, size=(nU, 1)).astype('float32') + Beta.sum(axis=0, keepdims=True)
+	Lambda_rte = np.random.gamma(c_prime, d_prime/c_prime, size=(nI, 1)).astype('float32') + Theta.sum(axis=0, keepdims=True)
+
+	Gamma_shp = Gamma_rte * Theta * np.random.uniform(low=.85, high=1.15, size=(nU, k)).astype('float32')
+	Lambda_shp = Lambda_rte * Beta * np.random.uniform(low=.85, high=1.15, size=(nI, k)).astype('float32')
+	np.nan_to_num(Gamma_shp, copy=False)
+	np.nan_to_num(Lambda_shp, copy=False)
+	np.nan_to_num(Gamma_rte, copy=False)
+	np.nan_to_num(Lambda_rte, copy=False)
+
+	return Gamma_shp, Gamma_rte, Lambda_shp, Lambda_rte, k_rte, t_rte
+
+### Main function
+#################
 def fit_hpf(float a, float a_prime, float b_prime,
 			float c, float c_prime, float d_prime,
 			np.ndarray[float, ndim=1] Y,
@@ -29,6 +67,7 @@ def fit_hpf(float a, float a_prime, float b_prime,
 			np.ndarray[float, ndim=2] Theta,
 			np.ndarray[float, ndim=2] Beta,
 			int maxiter, str stop_crit, int check_every, float stop_thr,
+			users_per_batch, step_size,
 			str save_folder, int random_seed, int verbose,
 			int nthreads, int par_sh, int has_valset,
 			np.ndarray[float, ndim=1] Yval,
@@ -45,43 +84,30 @@ def fit_hpf(float a, float a_prime, float b_prime,
 	if has_valset>0:
 		nYv = <int> Yval.shape[0]
 
+	cdef float k_shp = a_prime + k*a
+	cdef float t_shp = c_prime + k*c
+
 	if verbose>0:
 		print "Initializing parameters..."
 
-	### Comment: I'm not entirely sure how to initialize the variables according to the prior, and the
-	### initialization here differs from the implementation of the paper's author.
+	cdef np.ndarray[float, ndim=2] Gamma_shp, Gamma_rte, Lambda_shp, Lambda_rte, k_rte, t_rte
+	Gamma_shp, Gamma_rte, Lambda_shp, Lambda_rte, k_rte, t_rte = initialize_parameters(
+		Theta, Beta, random_seed, a, a_prime, b_prime, c, c_prime, d_prime)
 
-	## initializing parameters
-	if random_seed > 0:
-		np.random.seed(random_seed)
-	Theta[:,:] = np.random.gamma(a, 1/b_prime, size=(nU, k)).astype('float32')
-	Beta[:,:] = np.random.gamma(c, 1/d_prime, size=(nI, k)).astype('float32')
+	cdef np.ndarray[float, ndim=2] phi
+	if users_per_batch == 0:
+		phi = np.empty((nY, k), dtype='float32')
 
-	### Comment: the code above seems to give worse likelihood in the first iterations, but better
-	### local optima in the end, compared to initializing them like this:
-		# cdef np.ndarray[double, ndim=2] ksi = np.random.gamma(a_prime, b_prime/a_prime, size=(nU,1))
-		# Theta[:,:] = np.random.gamma(a, 1/ksi, size=(nU, k)).astype('float32')
-		# cdef np.ndarray[double, ndim=2] eta = np.random.gamma(c_prime, d_prime/c_prime, size=(nI,1))
-		# Beta[:,:] = np.random.gamma(c, 1/eta, size=(nI, k)).astype('float32')
-
-	cdef float k_shp = a_prime + k*a
-	cdef float t_shp = c_prime + k*c
-	cdef np.ndarray[float, ndim=2] k_rte = b_prime + Theta.sum(axis=1, keepdims=True)
-	cdef np.ndarray[float, ndim=2] t_rte = d_prime + Beta.sum(axis=1, keepdims=True)
-
-	cdef np.ndarray[float, ndim=2] Gamma_rte = np.random.gamma(a_prime, b_prime/a_prime, size=(nU, 1)).astype('float32') + \
-												Beta.sum(axis=0, keepdims=True)
-	cdef np.ndarray[float, ndim=2] Lambda_rte = np.random.gamma(c_prime, d_prime/c_prime, size=(nI, 1)).astype('float32') + \
-												Theta.sum(axis=0, keepdims=True)
-
-	cdef np.ndarray[float, ndim=2] Gamma_shp = Gamma_rte * Theta * np.random.uniform(low=.85, high=1.15, size=(nU, k)).astype('float32')
-	cdef np.ndarray[float, ndim=2] Lambda_shp = Lambda_rte * Beta * np.random.uniform(low=.85, high=1.15, size=(nI, k)).astype('float32')
-	np.nan_to_num(Gamma_shp, copy=False)
-	np.nan_to_num(Lambda_shp, copy=False)
-	np.nan_to_num(Gamma_rte, copy=False)
-	np.nan_to_num(Lambda_rte, copy=False)
-
-	cdef np.ndarray[float, ndim=2] phi = np.empty((nY, k), dtype='float32')
+	cdef np.ndarray[int, ndim=1] users_numeration
+	cdef nYbatch
+	cdef float multiplier_batch, step_prev
+	cdef np.ndarray[int, ndim=1] ix_u_batch, ix_i_batch
+	cdef np.ndarray[float, ndim=1] Y_batch
+	if users_per_batch != 0:
+		users_numeration = np.arange(nU, dtype=ctypes.c_int)
+		nbatches = int(np.ceil(float(nU) / float(users_per_batch)))
+		if random_seed > 0:
+			np.random.seed(random_seed)
 
 	cdef float add_k_rte = a_prime/b_prime
 	cdef float add_t_rte = c_prime/d_prime
@@ -101,34 +127,67 @@ def fit_hpf(float a, float a_prime, float b_prime,
 	cdef int i
 	for i in range(maxiter):
 
-		update_phi(&Gamma_shp[0,0], &Gamma_rte[0,0], &Lambda_shp[0,0], &Lambda_rte[0,0],
-						  &phi[0,0], &Y[0], k,
-						  &ix_u[0], &ix_i[0], nY, nthreads)
+		## Full-batch updates
+		if users_per_batch == 0:
 
-		Gamma_rte = k_shp/k_rte + Beta.sum(axis=0, keepdims=True)
-
-		### Comment: don't put this part before the update for Gamma rate
-		Gamma_shp[:,:] = a
-		Lambda_shp[:,:] = c
-		if par_sh>0:
-			## this produces inconsistent results across runs, so there's a non-parallel version too
-			update_G_n_L_sh_par(&Gamma_shp[0,0], &Lambda_shp[0,0],
-							  &phi[0,0], k,
+			update_phi(&Gamma_shp[0,0], &Gamma_rte[0,0], &Lambda_shp[0,0], &Lambda_rte[0,0],
+							  &phi[0,0], &Y[0], k,
 							  &ix_u[0], &ix_i[0], nY, nthreads)
+
+			Gamma_rte = k_shp/k_rte + Beta.sum(axis=0, keepdims=True)
+
+			### Comment: don't put this part before the update for Gamma rate
+			Gamma_shp[:,:] = a
+			Lambda_shp[:,:] = c
+			if par_sh>0:
+				## this produces inconsistent results across runs, so there's a non-parallel version too
+				update_G_n_L_sh_par(&Gamma_shp[0,0], &Lambda_shp[0,0],
+								  &phi[0,0], k,
+								  &ix_u[0], &ix_i[0], nY, nthreads)
+			else:
+				update_G_n_L_sh(&Gamma_shp[0,0], &Lambda_shp[0,0],
+								  &phi[0,0], k,
+								  &ix_u[0], &ix_i[0], nY)
+
+			Theta[:,:] = Gamma_shp/Gamma_rte
+
+			### Comment: these operations are pretty fast in numpy, so I preferred not to parallelize them.
+			### Moreover, compiler optimizations do a very poor job at parallelizing sums by columns.
+			Lambda_rte = t_shp/t_rte + Theta.sum(axis=0, keepdims=True)
+			Beta[:,:] = Lambda_shp/Lambda_rte
+
+			k_rte = add_k_rte + Theta.sum(axis=1, keepdims=True)
+			t_rte = add_t_rte + Beta.sum(axis=1, keepdims=True)
+
+		## Mini-batch epochs (stochastic variational inference)
 		else:
-			update_G_n_L_sh(&Gamma_shp[0,0], &Lambda_shp[0,0],
-							  &phi[0,0], k,
-							  &ix_u[0], &ix_i[0], nY)
+			step_size_batch = <float> step_size(i)
+			np.random.shuffle(users_numeration)
+			for bt in range(nbatches):
+				st_batch = bt * users_per_batch
+				end_batch = min((bt + 1) * users_per_batch, nU)
+				users_this_batch = users_numeration[st_batch : end_batch]
+				multiplier_batch = float(nU)/(end_batch - st_batch)
+				obs_this_batch = np.in1d(ix_u, users_this_batch)
+				Y_batch = Y[obs_this_batch]
+				ix_u_batch = ix_u[obs_this_batch]
+				ix_i_batch = ix_i[obs_this_batch]
+				items_this_batch = np.unique(ix_i_batch)
 
-		Theta[:,:] = Gamma_shp/Gamma_rte
+				partial_fit(
+					Y_batch,
+					ix_u_batch, ix_i_batch,
+					Theta, Beta,
+					Gamma_shp, Gamma_rte,
+					Lambda_shp, Lambda_rte,
+					k_rte, t_rte,
+					add_k_rte, add_t_rte, a, c,
+					k_shp, t_shp, k,
+					users_this_batch, items_this_batch, par_sh,
+					step_size_batch, multiplier_batch,
+					nthreads
+				)
 
-		### Comment: these operations are pretty fast in numpy, so I preferred not to parallelize them.
-		### Moreover, compiler optimizations do a very poor job at parallelizing sums by columns.
-		Lambda_rte = t_shp/t_rte + Theta.sum(axis=0, keepdims=True)
-		Beta[:,:] = Lambda_shp/Lambda_rte
-
-		k_rte = add_k_rte + Theta.sum(axis=1, keepdims=True)
-		t_rte = add_t_rte + Beta.sum(axis=1, keepdims=True)
 
 		## assessing convergence
 		if check_every>0:
@@ -203,14 +262,60 @@ def fit_hpf(float a, float a_prime, float b_prime,
 
 	## returning objects as needed
 	if keep_all_objs:
-		temp = None
-	else:
 		temp = (Gamma_shp, Gamma_rte, Lambda_shp, Lambda_rte, k_rte, t_rte)
+	else:
+		temp = None
 	return i, temp
 
 
-### Function for updates without a complete refit
+### Functions for updates without a complete refit
 ##################################################
+def partial_fit(np.ndarray[float, ndim=1] Y_batch,
+				np.ndarray[int, ndim=1] ix_u_batch, np.ndarray[int, ndim=1] ix_i_batch,
+				np.ndarray[float, ndim=2] Theta, np.ndarray[float, ndim=2] Beta,
+				np.ndarray[float, ndim=2] Gamma_shp, np.ndarray[float, ndim=2] Gamma_rte,
+				np.ndarray[float, ndim=2] Lambda_shp, np.ndarray[float, ndim=2] Lambda_rte,
+				np.ndarray[float, ndim=2] k_rte, np.ndarray[float, ndim=2] t_rte,
+				float add_k_rte, float add_t_rte, float a, float c,
+				float k_shp, float t_shp, int k,
+				users_this_batch, items_this_batch, par_sh,
+				float step_size_batch, multiplier_batch,
+				int nthreads
+				):
+	cdef int nYbatch = Y_batch.shape[0]
+	cdef np.ndarray[float, ndim=2] phi = np.empty((Y_batch.shape[0], k), dtype='float32')
+	cdef float step_prev = 1 - step_size_batch
+	update_phi(&Gamma_shp[0,0], &Gamma_rte[0,0], &Lambda_shp[0,0], &Lambda_rte[0,0],
+				  &phi[0,0], &Y_batch[0], k,
+				  &ix_u_batch[0], &ix_i_batch[0], nYbatch, nthreads)
+	
+	Gamma_rte[:,:] = k_shp/k_rte + Beta.sum(axis=0, keepdims=True)
+	
+	Lambda_shp_prev = Lambda_shp[items_this_batch].copy()
+
+	Gamma_shp[users_this_batch,:] = a
+	Lambda_shp[items_this_batch,:] = c
+
+	if par_sh>0:
+		update_G_n_L_sh_par(&Gamma_shp[0,0], &Lambda_shp[0,0],
+						  &phi[0,0], k,
+						  &ix_u_batch[0], &ix_i_batch[0],  nYbatch, nthreads)
+	else:
+		update_G_n_L_sh(&Gamma_shp[0,0], &Lambda_shp[0,0],
+						  &phi[0,0], k,
+						  &ix_u_batch[0], &ix_i_batch[0],  nYbatch)
+
+	Lambda_shp[items_this_batch,:] = step_size_batch * multiplier_batch * Lambda_shp[items_this_batch,:] + step_prev * Lambda_shp_prev
+
+	Theta[:,:] = Gamma_shp/Gamma_rte
+
+	Lambda_rte[items_this_batch,:] = step_size_batch * (t_shp/t_rte[items_this_batch] + Theta.sum(axis=0, keepdims=False)) + step_prev * Lambda_rte[items_this_batch,:]
+
+	Beta[:,:] = Lambda_shp/Lambda_rte
+
+	k_rte[:,:] = step_size_batch * (add_k_rte + Theta.sum(axis=1, keepdims=True)) + step_prev * k_rte
+	t_rte[:,:] = step_size_batch * (add_t_rte + Beta.sum(axis=1, keepdims=True)) + step_prev * t_rte
+
 def calc_user_factors(float a, float a_prime, float b_prime,
 					  float c, float c_prime, float d_prime,
 					  np.ndarray[float, ndim=1] Y,
