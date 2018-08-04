@@ -19,6 +19,8 @@ def cast_int(n):
 def cast_np_int(a):
 	return a.astype(int)
 
+### Procedures reusable by package ctpfrec
+##########################################
 def get_unique_items_batch(np.ndarray[int, ndim=1] users_this_batch,
 						   np.ndarray[int, ndim=1] st_ix_u,
 						   np.ndarray[int, ndim=1] ix_i, int nthreads,
@@ -35,6 +37,76 @@ def get_unique_items_batch(np.ndarray[int, ndim=1] users_this_batch,
 		return items, st_pos
 	else:
 		return items
+
+def save_parameters(verbose, save_folder, file_names, obj_list):
+	if verbose:
+		print "Saving final parameters to .csv files..."
+
+	for i in range(len(file_names)):
+		np.savetxt(os.path.join(save_folder, file_names[i]), obj_list[i], fmt="%.10f", delimiter=',')
+
+def assess_convergence(int i, check_every, stop_crit, last_crit, stop_thr,
+					   np.ndarray[float, ndim=2] Theta, np.ndarray[float, ndim=2] Theta_prev,
+					   np.ndarray[float, ndim=2] Beta, int nY,
+					   np.ndarray[float, ndim=1] Y, np.ndarray[int, ndim=1] ix_u, np.ndarray[int, ndim=1] ix_i, int nYv,
+					   np.ndarray[float, ndim=1] Yval, np.ndarray[int, ndim=1] ix_u_val, np.ndarray[int, ndim=1] ix_i_val,
+					   np.ndarray[long double, ndim=1] errs, int k, int nthreads, int verbose, int full_llk, has_valset):
+
+	if stop_crit == 'diff-norm':
+		last_crit = np.linalg.norm(Theta - Theta_prev)
+		if verbose:
+			print_norm_diff(i+1, check_every, <float> last_crit)
+		if last_crit < stop_thr:
+			return True, last_crit
+		Theta_prev[:,:] = Theta.copy()
+
+	else:
+
+		if has_valset:
+			llk_plus_rmse(&Theta[0,0], &Beta[0,0], &Yval[0],
+						  &ix_u_val[0], &ix_i_val[0], nYv, k,
+						  &errs[0], nthreads, verbose, full_llk)
+			errs[0] -= Theta[ix_u_val].sum(axis=0).dot(Beta[ix_i_val].sum(axis=0))
+			errs[1] = np.sqrt(errs[1]/nYv)
+		else:
+			llk_plus_rmse(&Theta[0,0], &Beta[0,0], &Y[0],
+						  &ix_u[0], &ix_i[0], nY, k,
+						  &errs[0], nthreads, verbose, full_llk)
+			errs[0] -= Theta.sum(axis=0).dot(Beta.sum(axis=0))
+			errs[1] = np.sqrt(errs[1]/nY)
+
+		if verbose:
+			print_llk_iter(<int> (i+1), <long long> errs[0], <double> errs[1], has_valset)
+
+		if stop_crit != 'maxiter':
+			if (i+1) == check_every:
+				last_crit = errs[0]
+			else:
+				if (1 - errs[0]/last_crit) <= stop_thr:
+					return True, last_crit
+				last_crit = errs[0]
+	
+	return False, last_crit
+
+def eval_after_term(stop_crit, int verbose, int nthreads, int full_llk, int k, int nY, int nYv, has_valset,
+					np.ndarray[float, ndim=2] Theta, np.ndarray[float, ndim=2] Beta,
+					np.ndarray[long double, ndim=1] errs,
+					np.ndarray[float, ndim=1] Y, np.ndarray[int, ndim=1] ix_u, np.ndarray[int, ndim=1] ix_i,
+					np.ndarray[float, ndim=1] Yval, np.ndarray[int, ndim=1] ix_u_val, np.ndarray[int, ndim=1] ix_i_val):
+	if (stop_crit == 'diff-norm') or (stop_crit == 'maxiter'):
+		if verbose>0:
+			if has_valset:
+				llk_plus_rmse(&Theta[0,0], &Beta[0,0], &Yval[0],
+							  &ix_u_val[0], &ix_i_val[0], nYv, k,
+							  &errs[0], nthreads, verbose, full_llk)
+				errs[0] -= Theta[ix_u_val].sum(axis=0).dot(Beta[ix_i_val].sum(axis=0))
+				errs[1] = np.sqrt(errs[1]/nYv)
+			else:
+				llk_plus_rmse(&Theta[0,0], &Beta[0,0], &Y[0],
+							  &ix_u[0], &ix_i[0], nY, k,
+							  &errs[0], nthreads, verbose, full_llk)
+				errs[0] -= Theta.sum(axis=0).dot(Beta.sum(axis=0))
+				errs[1] = np.sqrt(errs[1]/nY)
 
 ### Random initializer for parameters
 #####################################
@@ -119,8 +191,6 @@ def fit_hpf(float a, float a_prime, float b_prime,
 	cdef np.ndarray[int, ndim=1] users_numeration, users_this_batch, st_ix_u_batch
 	cdef int nUbatch
 	cdef float multiplier_batch, step_prev
-	# cdef np.ndarray[int, ndim=1] ix_u_batch, ix_i_batch
-	# cdef np.ndarray[float, ndim=1] Y_batch
 	if users_per_batch != 0:
 		users_numeration = np.arange(nU, dtype=ctypes.c_int)
 		nbatches = int(np.ceil(float(nU) / float(users_per_batch)))
@@ -135,6 +205,8 @@ def fit_hpf(float a, float a_prime, float b_prime,
 	cdef np.ndarray[float, ndim=2] Theta_prev
 	if stop_crit == 'diff-norm':
 		Theta_prev = Theta.copy()
+	else:
+		Theta_prev = np.empty((0,0), dtype='float32')
 
 	cdef int one = 1
 	if verbose>0:
@@ -240,72 +312,33 @@ def fit_hpf(float a, float a_prime, float b_prime,
 		if check_every>0:
 			if ((i+1) % check_every) == 0:
 
-				if stop_crit == 'diff-norm':
-					last_crit = np.linalg.norm(Theta - Theta_prev)
-					if verbose:
-						print_norm_diff(i+1, check_every, <float> last_crit)
-					if last_crit < stop_thr:
-						break
-					Theta_prev = Theta.copy()
+				has_converged, last_crit = assess_convergence(
+					i, check_every, stop_crit, last_crit, stop_thr,
+					Theta, Theta_prev,
+					Beta, nY,
+					Y, ix_u, ix_i, nYv,
+					Yval, ix_u_val, ix_i_val,
+					errs, k, nthreads, verbose, full_llk, has_valset
+					)
 
-				else:
-
-					if has_valset:
-						llk_plus_rmse(&Theta[0,0], &Beta[0,0], &Yval[0],
-									  &ix_u_val[0], &ix_i_val[0], nYv, k,
-									  &errs[0], nthreads, verbose, full_llk)
-						errs[0] -= Theta[ix_u_val].sum(axis=0).dot(Beta[ix_i_val].sum(axis=0))
-						errs[1] = np.sqrt(errs[1]/nYv)
-					else:
-						llk_plus_rmse(&Theta[0,0], &Beta[0,0], &Y[0],
-									  &ix_u[0], &ix_i[0], nY, k,
-									  &errs[0], nthreads, verbose, full_llk)
-						errs[0] -= Theta.sum(axis=0).dot(Beta.sum(axis=0))
-						errs[1] = np.sqrt(errs[1]/nY)
-
-					if verbose>0:
-						print_llk_iter(i+1, <long long> errs[0], <double> errs[1], has_valset)
-
-					if stop_crit != 'maxiter':
-						if (i+1) == check_every:
-							last_crit = errs[0]
-						else:
-							if (1 - errs[0]/last_crit) <= stop_thr:
-								break
-							last_crit = errs[0]
+				if has_converged:
+					break
 
 	## last metrics once it finishes optimizing
-	if (stop_crit == 'diff-norm') or (stop_crit == 'maxiter'):
-		if verbose>0:
-			if has_valset:
-				llk_plus_rmse(&Theta[0,0], &Beta[0,0], &Yval[0],
-							  &ix_u_val[0], &ix_i_val[0], nYv, k,
-							  &errs[0], nthreads, verbose, full_llk)
-				errs[0] -= Theta[ix_u_val].sum(axis=0).dot(Beta[ix_i_val].sum(axis=0))
-				errs[1] = np.sqrt(errs[1]/nYv)
-			else:
-				llk_plus_rmse(&Theta[0,0], &Beta[0,0], &Y[0],
-							  &ix_u[0], &ix_i[0], nY, k,
-							  &errs[0], nthreads, verbose, full_llk)
-				errs[0] -= Theta.sum(axis=0).dot(Beta.sum(axis=0))
-				errs[1] = np.sqrt(errs[1]/nY)
+	eval_after_term(stop_crit, verbose, nthreads, full_llk, k, nY, nYv, has_valset,
+					Theta, Beta, errs,
+					Y, ix_u, ix_i,
+					Yval, ix_u_val, ix_i_val
+					)
 
 	cdef double end_tm = (time.time()-st_time)/60
 	if verbose:
 		print_final_msg(i+1, <long long> errs[0], <double> errs[1], end_tm)
 
 	if save_folder != "":
-		if verbose:
-			print "Saving final parameters to .csv files..."
-		np.savetxt(os.path.join(save_folder, "Theta.csv"), Theta, fmt="%.10f", delimiter=',')
-		np.savetxt(os.path.join(save_folder, "Beta.csv"), Beta, fmt="%.10f", delimiter=',')
-		np.savetxt(os.path.join(save_folder, "Gamma_shp.csv"), Gamma_shp, fmt="%.10f", delimiter=',')
-		np.savetxt(os.path.join(save_folder, "Gamma_rte.csv"), Gamma_rte, fmt="%.10f", delimiter=',')
-		np.savetxt(os.path.join(save_folder, "Lambda_shp.csv"), Lambda_shp, fmt="%.10f", delimiter=',')
-		np.savetxt(os.path.join(save_folder, "Lambda_rte.csv"), Lambda_rte, fmt="%.10f", delimiter=',')
-		np.savetxt(os.path.join(save_folder, "kappa_rte.csv"), k_rte.reshape((-1,1)), fmt="%.10f", delimiter=',')
-		np.savetxt(os.path.join(save_folder, "tau_rte.csv"), t_rte.reshape((-1,1)), fmt="%.10f", delimiter=',')
-		np.savetxt(os.path.join(save_folder, "Phi.csv"), phi/Y.reshape((-1,1)), fmt="%.10f", delimiter=',')
+		save_parameters(verbose, save_folder,
+						["Theta", "Beta", "Gamma_shp", "Gamma_rte", "Lambda_shp", "Lambda_rte", "kappa_rte", "tau_rte", "Phi"],
+						[Theta, Beta, Gamma_shp, Gamma_rte, Lambda_shp, Lambda_rte, k_rte, t_rte, phi/Y.reshape((-1,1))])
 
 	## returning objects as needed
 	if keep_all_objs:
