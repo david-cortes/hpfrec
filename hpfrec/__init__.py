@@ -685,7 +685,7 @@ class HPF:
         if random_seed is not None:
             if isinstance(random_seed, float):
                 random_seed = int(random_seed)
-        assert isinstance(random_seed, int)
+            assert isinstance(random_seed, int)
 
         if counts_df.__class__.__name__ == "ndarray":
             counts_df = pd.DataFrame(counts_df)
@@ -983,7 +983,8 @@ class HPF:
                 if self.keep_all_objs:
                     self.Gamma_shp[user_id] = temp[0]
                     self.Gamma_rte[user_id] = temp[1]
-                    self.k_rte[user_id] = self.a_prime/self.b_prime + (temp[0]/temp[1]).sum(axis=1, keepdims=True)
+                    self.k_rte[user_id] = self.a_prime/self.b_prime + \
+                                        (temp[0].reshape((1,-1))/temp[1].reshape((1,-1))).sum(axis=1, keepdims=True)
             else:
                 if self.reindex:
                     new_id = self.user_mapping_.shape[0]
@@ -994,7 +995,8 @@ class HPF:
                 if self.keep_all_objs:
                     self.Gamma_shp = np.r_[self.Gamma_shp, temp[0].reshape((1, self.k))]
                     self.Gamma_rte = np.r_[self.Gamma_rte, temp[1].reshape((1, self.k))]
-                    self.k_rte = np.r_[self.k_rte, self.a_prime/self.b_prime + (temp[0]/temp[1]).sum(axis=1, keepdims=True)]
+                    self.k_rte = np.r_[self.k_rte, self.a_prime/self.b_prime + \
+                                    (temp[0].reshape((1,-1))/temp[1].reshape((1,-1))).sum(axis=1, keepdims=True)]
                 self.nusers += 1
 
         ## updating the list of seen items for this user
