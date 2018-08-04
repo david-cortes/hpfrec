@@ -343,7 +343,7 @@ class HPF:
         
         ## after terminating optimization
         if self.keep_data:
-            if self.users_per_batch != 0:
+            if self.users_per_batch == 0:
                 self._store_metadata()
             else:
                 self._st_ix_user = self._st_ix_user[:-1]

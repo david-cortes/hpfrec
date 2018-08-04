@@ -32,7 +32,7 @@ However, Poisson likelihood is given by the formula:
 If taking the logarithm (log-likelihood), then this becomes:
 ```l(y) = -log(y!) + y*log(yhat) - yhat```
 
-Since `log(0!) = 0`, and the sum of predictions for all combinations of users and items can be quickly calculated by `sum yhat = sum_{i,j} <U_i, V_j> = <sum_i U_i, sum_j V_j>` (`U` and `V` are non-negative matrices), it means the model doesn't ever need to make calculations on values that are equal to zero - simply not adding them to calculations would implicitly assume that they are zero.
+Since `log(0!) = 0`, and the sum of predictions for all combinations of users and items can be quickly calculated by `sum yhat = sum_{i,j} <U_i, V_j> = <sum_i U_i, sum_j V_j>` (since `U` and `V` are non-negative matrices), it means the model doesn't ever need to make calculations on values that are equal to zero - simply not adding them to calculations would implicitly assume that they are zero.
 
 Moreover, negative Poisson log-likelihood is a more appropriate loss for count data than squared loss, which tends to produce not-so-good results when the values to predict follow an exponential rather than a normal distribution.
 
@@ -138,6 +138,21 @@ If passing `reindex=True`, all user and item IDs that you pass to `.fit` will be
 For a more detailed example, see the IPython notebook [recommending songs with EchoNest MillionSong dataset](http://nbviewer.jupyter.org/github/david-cortes/hpfrec/blob/master/example/hpfrec_echonest.ipynb) illustrating its usage with the EchoNest TasteProfile dataset.
 
 This package contains only functionality related to fitting this model. For general evaluation metrics for recommendations on implicit data see other packages such as [lightFM](https://github.com/lyst/lightfm).
+
+## Saving model with pickle
+
+Using pickle to save an `HPF` object might fail due to problems with lambda functions. The following solves it:
+
+```python
+import pickle
+from hpfrec import HPF
+
+h = HPF()
+h.step_size = None
+pickle.dump(h, open("HPF_obj.p", "wb"))
+```
+
+(Be aware though that afterwards it won't be possible to use `partial_fit` or `add_user` with updates to item parameters.)
 
 ## Documentation
 

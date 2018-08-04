@@ -303,9 +303,9 @@ def fit_hpf(float a, float a_prime, float b_prime,
 		np.savetxt(os.path.join(save_folder, "Gamma_rte.csv"), Gamma_rte, fmt="%.10f", delimiter=',')
 		np.savetxt(os.path.join(save_folder, "Lambda_shp.csv"), Lambda_shp, fmt="%.10f", delimiter=',')
 		np.savetxt(os.path.join(save_folder, "Lambda_rte.csv"), Lambda_rte, fmt="%.10f", delimiter=',')
-		np.savetxt(os.path.join(save_folder, "kappa_rte.csv"), k_rte.reshape(-1,1), fmt="%.10f", delimiter=',')
-		np.savetxt(os.path.join(save_folder, "tau_rte.csv"), t_rte.reshape(-1,1), fmt="%.10f", delimiter=',')
-		np.savetxt(os.path.join(save_folder, "Phi.csv"), phi/Y, fmt="%.10f", delimiter=',')
+		np.savetxt(os.path.join(save_folder, "kappa_rte.csv"), k_rte.reshape((-1,1)), fmt="%.10f", delimiter=',')
+		np.savetxt(os.path.join(save_folder, "tau_rte.csv"), t_rte.reshape((-1,1)), fmt="%.10f", delimiter=',')
+		np.savetxt(os.path.join(save_folder, "Phi.csv"), phi/Y.reshape((-1,1)), fmt="%.10f", delimiter=',')
 
 	## returning objects as needed
 	if keep_all_objs:
@@ -406,7 +406,7 @@ def calc_user_factors(float a, float a_prime, float b_prime,
 		Theta_prev = Theta.copy()
 
 	if return_all:
-		return Gamma_shp, Gamma_rte, phi/Y.reshape(-1, 1)
+		return Gamma_shp, Gamma_rte, phi/Y.reshape((-1, 1))
 	else:
 		return None
 
