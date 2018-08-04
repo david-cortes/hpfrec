@@ -2,11 +2,11 @@
 
 This is a Python package for hierarchical Poisson factorization, a form of probabilistic matrix factorization used for recommender systems with implicit count data, based on the paper _Scalable Recommendation with Hierarchical Poisson Factorization (P. Gopalan, 2015)_.
 
-Supports parallelization and different stopping criteria for the coordinate-ascent procedure. The bottleneck computations are written in fast Cython code.
-
-As a point of reference, fitting the model to the full MillionSong TasteProfile dataset (48M records from 370K users on 1M items) took around 40 minutes on a server from Google Cloud with Skylake CPU when using 24 cores.
-
 Although the package was created with recommender systems in mind, it can also be used for other domains, e.g. as a faster alternative to LDA (Latent Ditichlet Allocation), where users become documents and items become words.
+
+Supports parallelization, full-batch variational inference, mini-batch stochastic variational inference (based on batches of data from subsets of users), and different stopping criteria for the coordinate-ascent procedure. The bottleneck computations are written in fast Cython code.
+
+As a point of reference, fitting the model through full-batch updates to the MillionSong TasteProfile dataset (48M records from 1M users on 370K items) took around 45 minutes on a server from Google Cloud with Skylake CPU when using 24 cores.
 
 ## Model description
 
@@ -73,32 +73,37 @@ counts_df = counts_df.loc[counts_df.Count > 0].reset_index(drop=True)
 ## Initializing the model object
 recommender = HPF()
 
+## For stochastic variational inference, need to select batch size (number of users)
+recommender = HPF(users_per_batch = 20)
+
 ## Full function call
 recommender = HPF(
 	k=20,
 	a=.3, a_prime=.3, b_prime=1.0,
 	c=.3, c_prime=.3, d_prime=1.0,
 	ncores=-1, stop_crit='train-llk', check_every=10, stop_thr=1e-3,
+	users_per_batch=None, step_size=lambda x: 1/np.sqrt(x+1),
 	maxiter=100, reindex=True, random_seed=None,
 	allow_inconsistent_math=False, verbose=True, full_llk=True,
 	keep_data=True, save_folder=None, produce_dicts=True
-				  )
+	)
 
-## Fitting to the data
+## Fitting the model to the data
 recommender.fit(counts_df)
 
 ## Fitting the model while monitoring a validation set
-recommender = HPF(
-	k=20,
-	a=.3, a_prime=.3, b_prime=1.0,
-	c=.3, c_prime=.3, d_prime=1.0,
-	ncores=-1, stop_crit='val-llk', check_every=10, stop_thr=1e-3,
-	maxiter=100, reindex=True, random_seed=None,
-	allow_inconsistent_math=False, verbose=True, full_llk=True,
-	keep_data=True, save_folder=None, produce_dicts=True
-				  )
-recommender.fit(counts_df, val_set=counts_df.sample(10**3))
+recommender = HPF(stop_crit='val-llk')
+recommender.fit(counts_df, val_set=counts_df.sample(10**2))
 ## Note: a real validation should NEVER be a subset of the training set
+
+## Fitting the model to data in batches passed by the user
+recommender = HPF(reindex=False, keep_data=False)
+users_batch1 = np.unique(np.random.randint(10**2, size=20))
+users_batch2 = np.unique(np.random.randint(10**2, size=20))
+users_batch3 = np.unique(np.random.randint(10**2, size=20))
+recommender.partial_fit(counts_df.loc[counts_df.UserId.isin(users_batch1)], nusers=10**2, nitems=10**2)
+recommender.partial_fit(counts_df.loc[counts_df.UserId.isin(users_batch2)])
+recommender.partial_fit(counts_df.loc[counts_df.UserId.isin(users_batch3)])
 
 ## Making predictions
 recommender.topN(user=10, n=10, exclude_seen=True)
@@ -110,12 +115,11 @@ recommender.predict(user=[10,11,12], item=[4,5,6])
 ## Evaluating model likelihood
 recommender.eval_llk(counts_df, full_llk=True)
 
-## Determining latent factors for a new user,
-## given her item interactions
+## Determining latent factors for a new user, given her item interactions
 nobs_new = 20
 np.random.seed(2)
 counts_df_new = pd.DataFrame({
-	'ItemId' : np.random.randint(nitems, size=nobs_new),
+	'ItemId' : np.random.choice(np.arange(nitems), size=nobs_new, replace=False),
 	'Count' : np.random.gamma(1,1, size=nobs_new).astype('int32')
 	})
 counts_df_new = counts_df_new.loc[counts_df_new.Count > 0].reset_index(drop=True)
@@ -137,15 +141,17 @@ This package contains only functionality related to fitting this model. For gene
 
 ## Documentation
 
-Documentation is available at readthedocs: [http://hpfrec.readthedocs.io/en/latest/](http://hpfrec.readthedocs.io/en/latest/)
+Documentation is available at readthedocs: [http://hpfrec.readthedocs.io](http://hpfrec.readthedocs.io/en/latest/)
 
 It is also internally documented through docstrings (e.g. you can try `help(hpfrec.HPF))`, `help(hpfrec.HPF.fit)`, etc.
 
 ## Speeding up optimization procedure
 
-For faster fitting and predictions, use scipy and numpy libraries compiled against MKL. In Windows, you can find Python wheels (installable with pip after downloading them) of numpy and scipy precompiled with MKL in [Christoph Gohlke's website](https://www.lfd.uci.edu/~gohlke/pythonlibs/). In Linux and Mac, these come by default in Anaconda installations (but are likely to get overwritten if you enable `conda-forge`). In some small experiments from my side, this yields a near 4x speedup compared to using free linear algebra libraries.
+For faster fitting and predictions, use scipy and numpy libraries compiled against MKL. In Windows, you can find Python wheels (installable with pip after downloading them) of numpy and scipy precompiled with MKL in [Christoph Gohlke's website](https://www.lfd.uci.edu/~gohlke/pythonlibs/). In Linux and Mac, these come by default in Anaconda installations (but are likely to get overwritten if you enable `conda-forge`). In some small experiments from my side, this yields a near 4x speedup compared to using free linear algebra libraries (for AMD cpu's, the speedup might not be as large).
 
-The constructor for HPF allows some parameters to make it run faster (if you know what you're doing): these are `allow_inconsistent_math=True`, `stop_crit='diff-norm'`, `reindex=False`, `verbose=False`. See the documentation for more details.
+The constructor for HPF allows some parameters to make it run faster (if you know what you're doing): these are `allow_inconsistent_math=True`, `full_llk=False`, `stop_crit='diff-norm'`, `reindex=False`, `verbose=False`. See the documentation for more details.
+
+Using stochastic variational inference, which fits the data in smaller batches containing all the user-item interactions only for subsets of users, might converge in fewer iterations (epochs), but the results tend be slightly worse.
 
 ## Troubleshooting
 
@@ -158,3 +164,4 @@ The package has only been tested under Python 3.6.
 ## References
 * [1] Gopalan, Prem, Jake M. Hofman, and David M. Blei. "Scalable Recommendation with Hierarchical Poisson Factorization." UAI. 2015.
 * [2] Gopalan, Prem, Jake M. Hofman, and David M. Blei. "Scalable recommendation with poisson factorization." arXiv preprint arXiv:1311.1704 (2013).
+* [3] Hoffman, Matthew D., et al. "Stochastic variational inference." The Journal of Machine Learning Research 14.1 (2013): 1303-1347.

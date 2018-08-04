@@ -24,8 +24,7 @@ class HPF:
        and stop once the *l2-norm* of this difference is below a certain threshold (stop_thr).
        Note that this is **not a percent** difference as it is for log-likelihood criteria, so you should put a larger
        value than the default here.
-       This is a much faster criterion to calculate and is recommended for larger datasets, but it is
-       **NOT recommended** when using stochastic variational inference.
+       This is a much faster criterion to calculate and is recommended for larger datasets.
     
     If passing reindex=True, it will internally reindex all user and item IDs. Your data will not require
     reindexing if the IDs for users and items in counts_df meet the following criteria:
@@ -101,8 +100,8 @@ class HPF:
         The step size must be a number between zero and one, and should be decresing with bigger iteration numbers.
         Ignored when passing users_per_batch=None.
     maxiter : int
-        Maximum number of iterations for which to run the optimization procedure. Recommended to use a lower
-        number when passing a batch size.
+        Maximum number of iterations for which to run the optimization procedure. This corresponds to epochs when
+        fitting in batches of users. Recommended to use a lower number when passing a batch size.
     reindex : bool
         Whether to reindex data internally.
     verbose : bool
@@ -112,9 +111,13 @@ class HPF:
     allow_inconsistent_math : bool
         Whether to allow inconsistent floating-point math (producing slightly different results on each run)
         which would allow parallelization of the updates for the shape parameters of Lambda and Gamma.
+        Ignored (forced to True) in stochastic optimization mode.
     full_llk : bool
         Whether to calculate the full lok-likehood, including terms that don't depend on the model parameters
         (thus are constant for a given dataset).
+    alloc_full_phi : bool
+        Whether to allocate the full Phi matrix (size n_samples * k) when using stochastic optimization. Doing so
+        will make it a bit faster, but it will use more memory. Ignored when passing users_per_batch=None.
     keep_data : bool
         Whether to keep information about which user was associated with each item
         in the training set, so as to exclude those items later when making Top-N
@@ -154,16 +157,17 @@ class HPF:
 
     References
     ----------
-    [1] Scalable Recommendation with Hierarchical Poisson Factorization (P. Gopalan, 2015)
+    [1] Scalable Recommendation with Hierarchical Poisson Factorization (Gopalan, P., Hofman, J.M. and Blei, D.M., 2015)
+    [2] Stochastic variational inference (Hoffman, M.D., Blei, D.M., Wang, C. and Paisley, J., 2013)
     """
     def __init__(self, k=30, a=0.3, a_prime=0.3, b_prime=1.0,
                  c=0.3, c_prime=0.3, d_prime=1.0, ncores=-1,
                  stop_crit='train-llk', check_every=10, stop_thr=1e-3,
-                 users_per_batch=None, step_size=lambda x: 1/np.sqrt(x+1),
+                 users_per_batch=None, step_size=lambda x: 1/np.sqrt(x+2),
                  maxiter=100, reindex=True, verbose=True,
                  random_seed = None, allow_inconsistent_math=False, full_llk=True,
-                 keep_data=True, save_folder=None, produce_dicts=True,
-                 keep_all_objs=True):
+                 alloc_full_phi=False, keep_data=True, save_folder=None,
+                 produce_dicts=True, keep_all_objs=True):
 
         ## checking input
         assert isinstance(k, int)
@@ -237,20 +241,19 @@ class HPF:
         if (stop_crit == 'maxiter') and (not verbose):
             check_every = 0
 
+        if not isinstance(step_size, types.FunctionType):
+            raise ValueError("'step_size' must be a function.")
+        if len(inspect.getfullargspec(step_size).args) < 1:
+            raise ValueError("'step_size' must be able to take the iteration number as input.")
+        assert (step_size(0) >= 0) and (step_size(0) <= 1)
+        assert (step_size(1) >= 0) and (step_size(1) <= 1)
         if users_per_batch is not None:
-            if not isinstance(step_size, types.FunctionType):
-                raise ValueError("'step_size' must be a function.")
-            if len(inspect.getfullargspec(step_size).args) < 1:
-                raise ValueError("'step_size' must be able to take the iteration number as input.")
-            assert (step_size(0) >= 0) and (step_size(0) <= 1)
-            assert (step_size(1) >= 0) and (step_size(1) <= 1)
             if isinstance(users_per_batch, float):
                 users_per_batch = int(users_per_batch)
             assert isinstance(users_per_batch, int)
             assert users_per_batch > 0
         else:
             users_per_batch = 0
-            step_size = None
         
         ## storing these parameters
         self.k = k
@@ -274,9 +277,13 @@ class HPF:
         self.verbose = verbose
         self.produce_dicts = bool(produce_dicts)
         self.full_llk = bool(full_llk)
+        self.alloc_full_phi = bool(alloc_full_phi)
         self.keep_all_objs = bool(keep_all_objs)
         self.step_size = step_size
         self.users_per_batch = users_per_batch
+
+        if not self.reindex:
+            self.produce_dicts = False
         
         ## initializing other attributes
         self.Theta = None
@@ -331,11 +338,15 @@ class HPF:
         else:
             self.val_set = None
             
+        self._cast_before_fit()
         self.niter = self._fit()
         
         ## after terminating optimization
         if self.keep_data:
-            self._store_metadata()
+            if self.users_per_batch != 0:
+                self._store_metadata()
+            else:
+                self._st_ix_user = self._st_ix_user[:-1]
         if self.produce_dicts and self.reindex:
             self.user_dict_ = {self.user_mapping_[i]:i for i in range(self.user_mapping_.shape[0])}
             self.item_dict_ = {self.item_mapping_[i]:i for i in range(self.item_mapping_.shape[0])}
@@ -397,8 +408,10 @@ class HPF:
 
         if self.users_per_batch != 0:
             if self.nusers < self.users_per_batch:
-                warnings.warn("Batch size passed is larger than number of users. Will set it to nusers/20.")
-                self.users_per_batch = ctypes.c_int(self.nusers/20)
+                warnings.warn("Batch size passed is larger than number of users. Will set it to nusers/10.")
+                self.users_per_batch = ctypes.c_int(np.ceil(self.nusers/10))
+            self.input_df.sort_values('UserId', inplace=True)
+            self._store_metadata(for_partial_fit=True)
 
         return None
         
@@ -440,17 +453,20 @@ class HPF:
                 self.val_set['ItemId'] = self.val_set.ItemId.astype(ctypes.c_int)
         return None
             
-    def _store_metadata(self):
+    def _store_metadata(self, for_partial_fit=False):
         self.seen = self.input_df[['UserId', 'ItemId']].copy()
         self.seen.sort_values(['UserId', 'ItemId'], inplace=True)
         self.seen.reset_index(drop = True, inplace = True)
         self._n_seen_by_user = self.seen.groupby('UserId')['ItemId'].agg(lambda x: len(x)).values
         self._st_ix_user = np.cumsum(self._n_seen_by_user)
-        self._st_ix_user = np.r_[[0], self._st_ix_user[:self._st_ix_user.shape[0]-1]]
+        if for_partial_fit:
+            self._st_ix_user = np.r_[[0], self._st_ix_user]
+        else:
+            self._st_ix_user = np.r_[[0], self._st_ix_user[:self._st_ix_user.shape[0]-1]]
         self.seen = self.seen.ItemId.values
         return None
 
-    def _cast_before_fit():
+    def _cast_before_fit(self):
         ## setting all parameters and data to the right type
         self.Theta = np.empty((self.nusers, self.k), dtype='float32')
         self.Beta = np.empty((self.nitems, self.k), dtype='float32')
@@ -478,8 +494,6 @@ class HPF:
     
     def _fit(self):
 
-        self._cast_before_fit()
-
         if self.val_set is None:
             use_valset = cython_loops.cast_int(0)
             self.val_set = pd.DataFrame(np.empty((0,3)), columns=['UserId','ItemId','Count'])
@@ -489,6 +503,9 @@ class HPF:
         else:
             use_valset = cython_loops.cast_int(1)
 
+        if self.users_per_batch == 0:
+            self._st_ix_user = np.arange(1).astype(ctypes.c_int)
+
         self.niter, temp = cython_loops.fit_hpf(
             self.a, self.a_prime, self.b_prime,
             self.c, self.c_prime, self.d_prime,
@@ -496,12 +513,17 @@ class HPF:
             self.Theta, self.Beta,
             self.maxiter, self.stop_crit, self.check_every, self.stop_thr,
             self.users_per_batch, self.step_size,
+            self._st_ix_user.astype(ctypes.c_int),
             self.save_folder, self.random_seed, self.verbose,
             self.ncores, cython_loops.cast_int(self.allow_inconsistent_math),
             use_valset,
             self.val_set.Count.values, self.val_set.UserId.values, self.val_set.ItemId.values,
-            cython_loops.cast_int(self.full_llk), cython_loops.cast_int(self.keep_all_objs)
+            cython_loops.cast_int(self.full_llk), cython_loops.cast_int(self.keep_all_objs),
+            cython_loops.cast_int(self.alloc_full_phi)
             )
+
+        if self.users_per_batch == 0:
+            del self._st_ix_user
 
         if self.keep_all_objs:
             self.Gamma_shp = temp[0]
@@ -544,7 +566,8 @@ class HPF:
         return counts_df
 
     def partial_fit(self, counts_df, step_size=None, nusers=None, nitems=None,
-                    users_in_batch=None, items_in_batch=None):
+                    users_in_batch=None, items_in_batch=None,
+                    new_users=False, new_items=False, random_seed=None):
         """
         Updates the model with batches of user data
 
@@ -560,6 +583,9 @@ class HPF:
         Note
         ----
         For better results, fit the model with full-batch iterations (using the 'fit' method).
+        Adding new users and/or items without refitting the model might result in worsened results
+        for existing users/items. For adding users without altering the parameters for items or for
+        other users, see the method 'add_user'.
 
         Parameters
         ----------
@@ -583,6 +609,17 @@ class HPF:
         items_in_batch : None or array (n_items_sample,)
             Items that are present int counts_df. If passing None, will determine the unique elements in
             counts_df.ItemId, but passing them if you already have them will skip this step.
+        new_users : bool
+            Whether the data contains new users with numeration greater than the number of users with which
+            the model was initially fit. **For better results refit the model including all users/items instead
+            of adding them afterwards**.
+        new_items : bool
+            Whether the data contains new items with numeration greater than the number of items with which
+            the model was initially fit. **For better results refit the model including all users/items instead
+            of adding them afterwards**.
+        random_seed : int
+            Random seed to be used for the initialization of new user/item parameters. Ignored when
+            new_users=False and new_items=False.
 
         Returns
         -------
@@ -590,7 +627,6 @@ class HPF:
             Copy of this object.
         """
 
-        #TODO: add functionality for adding new users and items on-the-fly
         if self.reindex:
             raise ValueError("'partial_fit' can only be called when using reindex=False.")
         if not self.keep_all_objs:
@@ -618,9 +654,15 @@ class HPF:
             except:
                 raise ValueError("Must specify total number of items when calling 'partial_fit' for the first time.")
 
-        if self.nusers is None:
+        try:
+            if self.nusers is None:
+                self.nusers = nusers
+        except:
             self.nusers = nusers
-        if self.nitems is None:
+        try:
+            if self.nitems is None:
+                self.nitems = nitems
+        except:
             self.nitems = nitems
 
         if step_size is None:
@@ -633,12 +675,17 @@ class HPF:
                     step_size = 1.0
             except:
                 try:
-                    step_size = 1 / np.sqrt(self.niter + 1)
+                    step_size = 1 / np.sqrt(self.niter + 2)
                 except:
                     self.niter = 0
                     step_size = 1.0
         assert step_size >= 0
         assert step_size <= 1
+
+        if random_seed is not None:
+            if isinstance(random_seed, float):
+                random_seed = int(random_seed)
+        assert isinstance(random_seed, int)
 
         if counts_df.__class__.__name__ == "ndarray":
             counts_df = pd.DataFrame(counts_df)
@@ -650,9 +697,9 @@ class HPF:
         assert 'Count' in counts_df.columns.values
         assert counts_df.shape[0] > 0
 
-        Y_batch = counts_df.Count.astype('float32')
-        ix_u_batch = counts_df.UserId.astype(ctypes.c_int)
-        ix_i_batch = counts_df.ItemId.astype(ctypes.c_int)
+        Y_batch = counts_df.Count.values.astype('float32')
+        ix_u_batch = counts_df.UserId.values.astype(ctypes.c_int)
+        ix_i_batch = counts_df.ItemId.values.astype(ctypes.c_int)
 
         if users_in_batch is None:
             users_in_batch = np.unique(ix_u_batch)
@@ -665,8 +712,31 @@ class HPF:
 
         if (self.Theta is None) or (self.Beta is None):
             self._cast_before_fit()
-            self.Gamma_shp, self.Gamma_rte, self.Lambda_shp, self.Lambda_rte, self.k_rte, self.t_rte = initialize_parameters(
-                self.Theta, self.Beta, self.random_seed, self.a, self.a_prime, self.b_prime, self.c, self.c_prime, self.d_prime)
+            self.Gamma_shp, self.Gamma_rte, self.Lambda_shp, self.Lambda_rte, \
+            self.k_rte, self.t_rte = cython_loops.initialize_parameters(
+                self.Theta, self.Beta, self.random_seed, self.a, self.a_prime,
+                self.b_prime, self.c, self.c_prime, self.d_prime)
+            self.Theta = self.Gamma_shp / self.Gamma_rte
+            self.Beta = self.Lambda_shp / self.Lambda_rte
+
+        if new_users:
+            if not self.keep_all_objs:
+                raise ValueError("Can only add users without refitting when using keep_all_objs=True")
+            nusers_now = ix_u_batch.max() + 1
+            nusers_add = self.nusers - nusers_now
+            if nusers_add < 1:
+                raise ValueError("There are no new users in the data passed to 'partial_fit'.")
+            self._initialize_extra_users(nusers_add, random_seed)
+            self.nusers += nusers_add
+        if new_items:
+            if not self.keep_all_objs:
+                raise ValueError("Can only add items without refitting when using keep_all_objs=True")
+            nitems_now = ix_i_batch.max() + 1
+            nitems_add = self.nitems - nitems_now
+            if nitems_add < 1:
+                raise ValueError("There are no new items in the data passed to 'partial_fit'.")
+            self._initialize_extra_items(nitems_add, random_seed)
+            self.nitems += nitems_add
 
         k_shp = cython_loops.cast_float(self.a_prime + self.k * self.a)
         t_shp = cython_loops.cast_float(self.c_prime + self.k * self.c)
@@ -677,13 +747,13 @@ class HPF:
         cython_loops.partial_fit(
                     Y_batch,
                     ix_u_batch, ix_i_batch,
-                    Theta, Beta,
-                    Gamma_shp, Gamma_rte,
-                    Lambda_shp, Lambda_rte,
-                    k_rte, t_rte,
+                    self.Theta, self.Beta,
+                    self.Gamma_shp, self.Gamma_rte,
+                    self.Lambda_shp, self.Lambda_rte,
+                    self.k_rte, self.t_rte,
                     add_k_rte, add_t_rte, self.a, self.c,
                     k_shp, t_shp, cython_loops.cast_int(self.k),
-                    users_this_batch, items_this_batch,
+                    users_in_batch, items_in_batch,
                     cython_loops.cast_int(self.allow_inconsistent_math),
                     cython_loops.cast_float(step_size), cython_loops.cast_float(multiplier_batch),
                     self.ncores
@@ -693,7 +763,56 @@ class HPF:
         self.is_fitted = True
         return self
 
-    def predict_factors(self, counts_df, maxiter=10, nthreads=1, random_seed=1, stop_thr=1e-3, return_all=False):
+    def _initialize_extra_users(self, n, seed):
+        if seed is not None:
+            np.random.seed(seed)
+
+        new_Theta = np.random.gamma(self.a, 1/self.b_prime, size=(n, self.k)).astype('float32')
+        self.Theta = np.r_[self.Theta, new_Theta]
+        self.k_rte = np.r_[self.k_rte, b_prime + new_Theta.sum(axis=1, keepdims=True)]
+        new_Gamma_rte = np.random.gamma(self.a_prime, self.b_prime/self.a_prime, size=(n, 1)).astype('float32') \
+                            + self.Beta.sum(axis=0, keepdims=True)
+        self.Gamma_rte = np.r_[self.Gamma_rte, new_Gamma_rte]
+        self.Gamma_shp = np.r_[self.Gamma_shp, new_Gamma_rte * new_Theta * \
+                                np.random.uniform(low=.85, high=1.15, size=(n, self.k)).astype('float32')]
+
+    def _initialize_extra_items(self, n, seed):
+        if seed is not None:
+            np.random.seed(seed)
+
+        new_Beta = np.random.gamma(self.c, 1/self.d_prime, size=(n, self.k)).astype('float32')
+        self.Beta = np.r_[self.Beta, new_Beta]
+        self.t_rte = np.r_[self.t_rte, self.d_prime + new_Beta.sum(axis=1, keepdims=True)]
+        new_Lambda_rte = np.random.gamma(self.c_prime, self.d_prime/self.c_prime, size=(n, 1)).astype('float32') \
+                            + self.Theta.sum(axis=0, keepdims=True)
+        self.Lambda_rte = np.r_[self.Lambda_rte, new_Lambda_rte]
+        self.Lambda_shp = np.r_[self.Lambda_shp, new_Lambda_rte * new_Beta * \
+                                     np.random.uniform(low=.85, high=1.15, size=(n, self.k)).astype('float32')]
+
+    def _check_input_predict_factors(self, ncores, random_seed, stop_thr, maxiter):
+        if ncores == -1:
+            ncores = multiprocessing.cpu_count()
+            if ncores is None:
+                ncores = 1 
+        assert ncores>0
+        assert isinstance(ncores, int)
+
+        assert isinstance(random_seed, int)
+        assert random_seed > 0
+
+        if isinstance(stop_thr, int):
+            stop_thr = float(stop_thr)
+        assert stop_thr>0
+        assert isinstance(stop_thr, float)
+
+        if isinstance(maxiter, float):
+            maxiter = int(maxiter)
+        assert isinstance(maxiter, int)
+        assert maxiter > 0
+
+        return ncores, random_seed, stop_thr, maxiter
+
+    def predict_factors(self, counts_df, maxiter=10, ncores=1, random_seed=1, stop_thr=1e-3, return_all=False):
         """
         Gets latent factors for a user given her item counts
 
@@ -714,10 +833,11 @@ class HPF:
             user for whom it's desired to obtain latent factors.
         maxiter : int
             Maximum number of iterations to run.
-        nthreads : int
-            Number of threads to use. With data for only one user, it's unlikely that using
+        ncores : int
+            Number of threads/cores to use. With data for only one user, it's unlikely that using
             multiple threads would give a significant speed-up, and it might even end up making
             the function slower due to the overhead.
+            If passing -1, it will determine the maximum number of cores in the system and use that.
         random_seed : int
             Random seed used to initialize parameters.
         stop_thr : float
@@ -733,11 +853,13 @@ class HPF:
             Calculated latent factors for the user, given the input data
         """
 
+        ncores, random_seed, stop_thr, maxiter = self._check_input_predict_factors(ncores, random_seed, stop_thr, maxiter)
+
         ## processing the data
         counts_df = self._process_data_single(counts_df)
 
         ## calculating the latent factors
-        Theta = np.empty(k, dtype='float32')
+        Theta = np.empty(self.k, dtype='float32')
         temp = cython_loops.calc_user_factors(
                                  self.a, self.a_prime, self.b_prime,
                                  self.c, self.c_prime, self.d_prime,
@@ -746,10 +868,10 @@ class HPF:
                                  Theta, self.Beta,
                                  self.Lambda_shp,
                                  self.Lambda_rte,
-                                 ctypes.c_int(counts_df.shape[0]), self.k,
-                                 ctypes.c_int(maxiter), ctypes.c_int(nthreads),
-                                 ctypes.c_int(random_seed), ctypes.c_float(stop_thr),
-                                 ctypes.c_int(bool(return_all))
+                                 cython_loops.cast_int(counts_df.shape[0]), cython_loops.cast_int(self.k),
+                                 cython_loops.cast_int(int(maxiter)), cython_loops.cast_int(ncores),
+                                 cython_loops.cast_int(int(random_seed)), cython_loops.cast_float(stop_thr),
+                                 cython_loops.cast_int(bool(return_all))
                                  )
 
         if return_all:
@@ -757,8 +879,8 @@ class HPF:
         else:
             return Theta
 
-    def add_user(self, user_id, counts_df, update_existing=False, update_item_factors=False,
-                 maxiter=10, nthreads=1, random_seed=1, stop_thr=1e-3):
+    def add_user(self, user_id, counts_df, update_existing=False, maxiter=10, ncores=1,
+                 random_seed=1, stop_thr=1e-3, update_all_params=None):
         """
         Add a new user to the model or update parameters for a user according to new data
         
@@ -789,13 +911,10 @@ class HPF:
         update_existing : bool
             Whether this should be an update of the parameters for an existing user (when passing True), or
             an addition of a new user that was not in the model before (when passing False).
-        update_item_factors : bool
-            Whether to also update the item factors after each iteration, with a step size given by the function with which
-            the model object was initialized.
         maxiter : int
             Maximum number of iterations to run.
-        nthreads : int
-            Number of threads to use. With data for only one user, it's unlikely that using
+        ncores : int
+            Number of threads/cores to use. With data for only one user, it's unlikely that using
             multiple threads would give a significant speed-up, and it might even end up making
             the function slower due to the overhead.
         random_seed : int
@@ -803,6 +922,10 @@ class HPF:
         stop_thr : float
             If the l2-norm of the difference between values of Theta_{u} between interations is less
             than this, it will stop. Smaller values of 'k' should require smaller thresholds.
+        update_all_params : bool
+            Whether to update also the item parameters in each iteration. If passing True, will update them
+            with a step size given determined by the number of iterations already taken and the step_size function
+            given as input in the model constructor call.
 
         Returns
         -------
@@ -810,55 +933,69 @@ class HPF:
             Will return True if the process finishes successfully.
         """
 
-        #TODO: add option that updates the items parameters after each iteration
+        ncores, random_seed, stop_thr, maxiter = self._check_input_predict_factors(ncores, random_seed, stop_thr, maxiter)
+
         if update_existing:
             ## checking that the user already exists
-            if self.produce_dicts:
-                assert user in self.user_dict_
-                if self.reindex:
-                    user_id = self.user_dict_[user]
+            if self.produce_dicts and self.reindex:
+                user_id = self.user_dict_[user]
             else:
-                assert user in self.user_mapping_
                 if self.reindex:
-                    user_id = pd.Categorical(np.array([user]), self.user_mapping_).codes[0]
-            if not self.reindex:
-                user_id = user
+                    user_id = pd.Categorical(np.array([user_id]), self.user_mapping_).codes[0]
+                    if user_id == -1:
+                        raise ValueError("User was not present in the training data.")
 
         ## processing the data
         counts_df = self._process_data_single(counts_df)
         
-        ## calculating the latent factors
-        Theta = np.empty(k, dtype='float32')
-        temp = cython_loops.calc_user_factors(
-                             self.a, self.a_prime, self.b_prime,
-                             self.c, self.c_prime, self.d_prime,
-                             counts_df.Count.values,
-                             counts_df.ItemId.values,
-                             Theta, self.Beta,
-                             self.Lambda_shp,
-                             self.Lambda_rte,
-                             ctypes.c_int(counts_df.shape[0]), self.k,
-                             ctypes.c_int(maxiter), ctypes.c_int(nthreads),
-                             ctypes.c_int(random_seed), ctypes.c_float(stop_thr),
-                             ctypes.c_int(self.keep_all_objs)
-                             )
-
-        ## adding the data to the model
-        if update_existing:
-            self.Theta[user_id] = Theta
-            if self.keep_all_objs:
-                self.Gamma_shp[user_id] = temp[0]
-                self.Gamma_rte[user_id] = temp[1]
+        if update_all_params:
+            counts_df['UserId'] = user_id
+            counts_df['UserId'] = counts_df.UserId.astype(ctypes.c_int)
+            self.partial_fit(counts_df, new_users=(not update_existing))
+            Theta_prev = self.Theta[-1].copy()
+            for i in range(maxiter - 1):
+                self.partial_fit(counts_df)
+                new_Theta = self.Theta[-1]
+                if np.linalg.norm(new_Theta - Theta_prev) <= stop_thr:
+                    break
+                else:
+                    Theta_prev = self.Theta[-1].copy()
         else:
-            if self.reindex:
-                new_id = self.user_mapping_.shape[0]
-                self.user_mapping_ = np.r_[self.user_mapping_, user_id]
-                if self.produce_dicts:
-                    self.user_dict_[user_id] = new_id
-            self.Theta = np.r_[self.Theta, Theta]
-            if self.keep_all_objs:
-                self.Gamma_shp = np.r_[self.Gamma_shp, temp[0]]
-                self.Gamma_rte = np.r_[self.Gamma_rte, temp[1]]
+            ## calculating the latent factors
+            Theta = np.empty(self.k, dtype='float32')
+            temp = cython_loops.calc_user_factors(
+                                 self.a, self.a_prime, self.b_prime,
+                                 self.c, self.c_prime, self.d_prime,
+                                 counts_df.Count.values,
+                                 counts_df.ItemId.values,
+                                 Theta, self.Beta,
+                                 self.Lambda_shp,
+                                 self.Lambda_rte,
+                                 cython_loops.cast_int(counts_df.shape[0]), cython_loops.cast_int(self.k),
+                                 cython_loops.cast_int(maxiter), cython_loops.cast_int(ncores),
+                                 cython_loops.cast_int(random_seed), cython_loops.cast_int(stop_thr),
+                                 cython_loops.cast_int(self.keep_all_objs)
+                                 )
+
+            ## adding the data to the model
+            if update_existing:
+                self.Theta[user_id] = Theta
+                if self.keep_all_objs:
+                    self.Gamma_shp[user_id] = temp[0]
+                    self.Gamma_rte[user_id] = temp[1]
+                    self.k_rte[user_id] = self.a_prime/self.b_prime + (temp[0]/temp[1]).sum(axis=1, keepdims=True)
+            else:
+                if self.reindex:
+                    new_id = self.user_mapping_.shape[0]
+                    self.user_mapping_ = np.r_[self.user_mapping_, user_id]
+                    if self.produce_dicts:
+                        self.user_dict_[user_id] = new_id
+                self.Theta = np.r_[self.Theta, Theta.reshape((1, self.k))]
+                if self.keep_all_objs:
+                    self.Gamma_shp = np.r_[self.Gamma_shp, temp[0].reshape((1, self.k))]
+                    self.Gamma_rte = np.r_[self.Gamma_rte, temp[1].reshape((1, self.k))]
+                    self.k_rte = np.r_[self.k_rte, self.a_prime/self.b_prime + (temp[0]/temp[1]).sum(axis=1, keepdims=True)]
+                self.nusers += 1
 
         ## updating the list of seen items for this user
         if self.keep_data:

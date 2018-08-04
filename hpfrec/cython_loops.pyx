@@ -19,6 +19,23 @@ def cast_int(n):
 def cast_np_int(a):
 	return a.astype(int)
 
+def get_unique_items_batch(np.ndarray[int, ndim=1] users_this_batch,
+						   np.ndarray[int, ndim=1] st_ix_u,
+						   np.ndarray[int, ndim=1] ix_i, int nthreads,
+						   return_ix=False):
+	cdef int nusers_batch = users_this_batch.shape[0]
+	cdef np.ndarray[int, ndim=1] st_pos = np.empty(nusers_batch + 1, dtype=users_this_batch.dtype)
+	st_pos[0] = 0
+	get_i_batch_st1(&st_ix_u[0], &users_this_batch[0], &st_pos[0], nusers_batch)
+	cdef np.ndarray[int, ndim=1] arr_items_batch = np.empty(st_pos[-1], dtype=ix_i.dtype)
+	get_i_batch_st2(&st_ix_u[0], &st_pos[0], &arr_items_batch[0], &ix_i[0], &users_this_batch[0],
+					nusers_batch, nthreads)
+	items = np.unique(arr_items_batch)
+	if return_ix:
+		return items, st_pos
+	else:
+		return items
+
 ### Random initializer for parameters
 #####################################
 def initialize_parameters(Theta, Beta, random_seed,
@@ -42,8 +59,8 @@ def initialize_parameters(Theta, Beta, random_seed,
 		# cdef np.ndarray[double, ndim=2] eta = np.random.gamma(c_prime, d_prime/c_prime, size=(nI,1))
 		# Beta[:,:] = np.random.gamma(c, 1/eta, size=(nI, k)).astype('float32')
 
-	k_rte = b_prime + Theta.sum(axis=1, keepdims=True)
-	t_rte = d_prime + Beta.sum(axis=1, keepdims=True)
+	k_rte = a_prime/b_prime + Theta.sum(axis=1, keepdims=True)
+	t_rte = c_prime/d_prime + Beta.sum(axis=1, keepdims=True)
 
 	Gamma_rte = np.random.gamma(a_prime, b_prime/a_prime, size=(nU, 1)).astype('float32') + Beta.sum(axis=0, keepdims=True)
 	Lambda_rte = np.random.gamma(c_prime, d_prime/c_prime, size=(nI, 1)).astype('float32') + Theta.sum(axis=0, keepdims=True)
@@ -68,12 +85,13 @@ def fit_hpf(float a, float a_prime, float b_prime,
 			np.ndarray[float, ndim=2] Beta,
 			int maxiter, str stop_crit, int check_every, float stop_thr,
 			users_per_batch, step_size,
+			np.ndarray[int, ndim=1] st_ix_u,
 			str save_folder, int random_seed, int verbose,
 			int nthreads, int par_sh, int has_valset,
 			np.ndarray[float, ndim=1] Yval,
 			np.ndarray[int, ndim=1] ix_u_val,
 			np.ndarray[int, ndim=1] ix_i_val,
-			int full_llk, int keep_all_objs):
+			int full_llk, int keep_all_objs, int alloc_full_phi):
 	## useful information
 	cdef int nU = <int> Theta.shape[0]
 	cdef int nI = <int> Beta.shape[0]
@@ -95,14 +113,14 @@ def fit_hpf(float a, float a_prime, float b_prime,
 		Theta, Beta, random_seed, a, a_prime, b_prime, c, c_prime, d_prime)
 
 	cdef np.ndarray[float, ndim=2] phi
-	if users_per_batch == 0:
+	if (users_per_batch == 0) or alloc_full_phi:
 		phi = np.empty((nY, k), dtype='float32')
 
-	cdef np.ndarray[int, ndim=1] users_numeration
-	cdef nYbatch
+	cdef np.ndarray[int, ndim=1] users_numeration, users_this_batch, st_ix_u_batch
+	cdef int nUbatch
 	cdef float multiplier_batch, step_prev
-	cdef np.ndarray[int, ndim=1] ix_u_batch, ix_i_batch
-	cdef np.ndarray[float, ndim=1] Y_batch
+	# cdef np.ndarray[int, ndim=1] ix_u_batch, ix_i_batch
+	# cdef np.ndarray[float, ndim=1] Y_batch
 	if users_per_batch != 0:
 		users_numeration = np.arange(nU, dtype=ctypes.c_int)
 		nbatches = int(np.ceil(float(nU) / float(users_per_batch)))
@@ -164,29 +182,58 @@ def fit_hpf(float a, float a_prime, float b_prime,
 			step_size_batch = <float> step_size(i)
 			np.random.shuffle(users_numeration)
 			for bt in range(nbatches):
+				# print "bt: ", bt
 				st_batch = bt * users_per_batch
-				end_batch = min((bt + 1) * users_per_batch, nU)
+				end_batch = min(nU, (bt + 1) * users_per_batch)
+				if st_batch>end_batch:
+					break
 				users_this_batch = users_numeration[st_batch : end_batch]
-				multiplier_batch = float(nU)/(end_batch - st_batch)
-				obs_this_batch = np.in1d(ix_u, users_this_batch)
-				Y_batch = Y[obs_this_batch]
-				ix_u_batch = ix_u[obs_this_batch]
-				ix_i_batch = ix_i[obs_this_batch]
-				items_this_batch = np.unique(ix_i_batch)
+				multiplier_batch = float(nU) / float(end_batch - st_batch)
+				nUbatch = <int> users_this_batch.shape[0]
 
-				partial_fit(
-					Y_batch,
-					ix_u_batch, ix_i_batch,
-					Theta, Beta,
-					Gamma_shp, Gamma_rte,
-					Lambda_shp, Lambda_rte,
-					k_rte, t_rte,
-					add_k_rte, add_t_rte, a, c,
-					k_shp, t_shp, k,
-					users_this_batch, items_this_batch, par_sh,
-					step_size_batch, multiplier_batch,
-					nthreads
-				)
+				# items_this_batch = get_unique_items_batch(users_this_batch, st_ix_u, ix_i, nthreads)
+				if alloc_full_phi:
+					items_this_batch = get_unique_items_batch(users_this_batch, st_ix_u, ix_i, nthreads, False)
+				else:
+					items_this_batch, st_ix_u_batch = get_unique_items_batch(users_this_batch, st_ix_u, ix_i, nthreads, True)
+					phi = np.empty((st_ix_u_batch[-1], k), dtype='float32')
+				step_prev = 1 - step_size_batch
+
+				if alloc_full_phi:
+					update_phi_csr(&Gamma_shp[0,0], &Gamma_rte[0,0], &Lambda_shp[0,0], &Lambda_rte[0,0],
+							   &phi[0,0], &Y[0], &ix_i[0], &st_ix_u[0], &users_this_batch[0],
+							   k, nUbatch, nthreads)
+				else:
+					update_phi_csr_small(&Gamma_shp[0,0], &Gamma_rte[0,0], &Lambda_shp[0,0], &Lambda_rte[0,0],
+							   &phi[0,0], &Y[0], &ix_i[0], &st_ix_u[0], &users_this_batch[0], &st_ix_u_batch[0],
+							   k, nUbatch, nthreads)
+				
+				Gamma_rte = k_shp/k_rte + Beta.sum(axis=0, keepdims=True)
+				
+				Lambda_shp_prev = Lambda_shp[items_this_batch,:].copy()
+
+				Gamma_shp[users_this_batch,:] = a
+				Lambda_shp[items_this_batch,:] = c
+
+				if alloc_full_phi:
+					update_G_n_L_sh_csr(&Gamma_shp[0,0], &Lambda_shp[0,0], &phi[0,0],
+									k, nUbatch, nthreads,
+									&ix_i[0], &st_ix_u[0], &users_this_batch[0])
+				else:
+					update_G_n_L_sh_csr_small(&Gamma_shp[0,0], &Lambda_shp[0,0], &st_ix_u_batch[0], &phi[0,0],
+									k, nUbatch, nthreads,
+									&ix_i[0], &st_ix_u[0], &users_this_batch[0])
+
+				Lambda_shp[items_this_batch,:] = step_size_batch * multiplier_batch * Lambda_shp[items_this_batch,:] + step_prev * Lambda_shp_prev
+
+				Theta[:,:] = Gamma_shp / Gamma_rte
+
+				Lambda_rte[items_this_batch,:] = step_size_batch * (t_shp/t_rte[items_this_batch] + Theta.sum(axis=0, keepdims=False)) + step_prev * Lambda_rte[items_this_batch,:]
+
+				Beta[:,:] = Lambda_shp / Lambda_rte
+
+				k_rte = step_size_batch * (add_k_rte + Theta.sum(axis=1, keepdims=True)) + step_prev * k_rte
+				t_rte = step_size_batch * (add_t_rte + Beta.sum(axis=1, keepdims=True)) + step_prev * t_rte
 
 
 		## assessing convergence
@@ -279,11 +326,11 @@ def partial_fit(np.ndarray[float, ndim=1] Y_batch,
 				float add_k_rte, float add_t_rte, float a, float c,
 				float k_shp, float t_shp, int k,
 				users_this_batch, items_this_batch, par_sh,
-				float step_size_batch, multiplier_batch,
+				float step_size_batch, float multiplier_batch,
 				int nthreads
 				):
 	cdef int nYbatch = Y_batch.shape[0]
-	cdef np.ndarray[float, ndim=2] phi = np.empty((Y_batch.shape[0], k), dtype='float32')
+	cdef np.ndarray[float, ndim=2] phi = np.empty((nYbatch, k), dtype='float32')
 	cdef float step_prev = 1 - step_size_batch
 	update_phi(&Gamma_shp[0,0], &Gamma_rte[0,0], &Lambda_shp[0,0], &Lambda_rte[0,0],
 				  &phi[0,0], &Y_batch[0], k,
@@ -291,7 +338,7 @@ def partial_fit(np.ndarray[float, ndim=1] Y_batch,
 	
 	Gamma_rte[:,:] = k_shp/k_rte + Beta.sum(axis=0, keepdims=True)
 	
-	Lambda_shp_prev = Lambda_shp[items_this_batch].copy()
+	Lambda_shp_prev = Lambda_shp[items_this_batch,:].copy()
 
 	Gamma_shp[users_this_batch,:] = a
 	Lambda_shp[items_this_batch,:] = c
@@ -307,11 +354,11 @@ def partial_fit(np.ndarray[float, ndim=1] Y_batch,
 
 	Lambda_shp[items_this_batch,:] = step_size_batch * multiplier_batch * Lambda_shp[items_this_batch,:] + step_prev * Lambda_shp_prev
 
-	Theta[:,:] = Gamma_shp/Gamma_rte
+	Theta[:,:] = Gamma_shp / Gamma_rte
 
 	Lambda_rte[items_this_batch,:] = step_size_batch * (t_shp/t_rte[items_this_batch] + Theta.sum(axis=0, keepdims=False)) + step_prev * Lambda_rte[items_this_batch,:]
 
-	Beta[:,:] = Lambda_shp/Lambda_rte
+	Beta[:,:] = Lambda_shp / Lambda_rte
 
 	k_rte[:,:] = step_size_batch * (add_k_rte + Theta.sum(axis=1, keepdims=True)) + step_prev * k_rte
 	t_rte[:,:] = step_size_batch * (add_t_rte + Beta.sum(axis=1, keepdims=True)) + step_prev * t_rte
@@ -342,13 +389,13 @@ def calc_user_factors(float a, float a_prime, float b_prime,
 	cdef np.ndarray[float, ndim=2] phi = np.empty((nY, k), dtype='float32')
 	cdef float add_k_rte = a_prime/b_prime
 	cdef np.ndarray[float, ndim=1] Theta_prev = Theta.copy()
-	cdef np.ndarray[int, ndim=1] u_repeated = np.ones(nY, dtype=ctypes.c_int)
+	cdef np.ndarray[int, ndim=1] u_repeated = np.zeros(nY, dtype=ctypes.c_int)
 
 	## running the loop
 	for i in range(maxiter):
 		update_phi(&Gamma_shp[0], &Gamma_rte[0], &Lambda_shp[0,0], &Lambda_rte[0,0],
 				   &phi[0,0], &Y[0], k, &u_repeated[0], &ix_i[0], nY, nthreads)
-		Gamma_rte = k_shp/k_rte + Beta.sum(axis=0, keepdims=True)
+		Gamma_rte = (k_shp/k_rte + Beta.sum(axis=0, keepdims=True)).reshape(-1)
 		Gamma_shp = a + phi.sum(axis=0)
 		Theta[:] = Gamma_shp / Gamma_rte
 		k_rte = add_k_rte + Theta.sum()
@@ -359,7 +406,7 @@ def calc_user_factors(float a, float a_prime, float b_prime,
 		Theta_prev = Theta.copy()
 
 	if return_all:
-		return Gamma_shp, Gamma_rte, phi/Y
+		return Gamma_shp, Gamma_rte, phi/Y.reshape(-1, 1)
 	else:
 		return None
 
@@ -466,6 +513,128 @@ cdef void llk_plus_rmse(float* T, float* B, float* Y,
 			out[0] = out1
 	### Comment: adding += directly to *out triggers compiler optimizations that produce
 	### different (and wrong) results across different runs.
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.nonecheck(False)
+@cython.cdivision(True)
+cdef void update_phi_csr(float* G_sh, float* G_rt, float* L_sh, float* L_rt,
+						 float* phi, float* Y, int* ix_i, int* st_ix_u, int* u_arr,
+						 int k, int nU, int nthreads) nogil:
+	cdef int u, i, j
+	cdef int uid, n_uid
+	cdef int st_G, st_L, phi_st, y_ix
+	cdef float sumphi
+	for u in prange(nU, schedule='dynamic', num_threads=nthreads):
+		uid = u_arr[u]
+		n_uid = st_ix_u[uid + 1] - st_ix_u[uid]
+		for i in range(n_uid):
+			st_G = k * uid
+			y_ix = i + st_ix_u[uid]
+			st_L = k * ix_i[y_ix]
+			phi_st = y_ix * k
+			sumphi = 0
+			for j in range(k):
+				phi[phi_st + j] = exp(  psi(G_sh[st_G + j]) - log(G_rt[st_G + j]) +psi(L_sh[st_L + j]) - log(L_rt[st_L + j])  )
+				sumphi += phi[phi_st + j]
+			for j in range(k):
+				phi[phi_st + j] *= Y[y_ix] / sumphi
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.nonecheck(False)
+@cython.cdivision(True)
+cdef void update_phi_csr_small(float* G_sh, float* G_rt, float* L_sh, float* L_rt,
+						 	   float* phi, float* Y, int* ix_i, int* st_ix_u, int* u_arr,
+						 	   int* st_phi_u, int k, int nU, int nthreads) nogil:
+	cdef int u, i, j
+	cdef int uid, n_uid
+	cdef int st_G, st_L, phi_st, y_ix
+	cdef float sumphi
+	for u in prange(nU, schedule='dynamic', num_threads=nthreads):
+		uid = u_arr[u]
+		n_uid = st_ix_u[uid + 1] - st_ix_u[uid]
+		for i in range(n_uid):
+			st_G = k * uid
+			y_ix = i + st_ix_u[uid]
+			st_L = k * ix_i[y_ix]
+			phi_st = (st_phi_u[u] + i) * k
+			sumphi = 0
+			for j in range(k):
+				phi[phi_st + j] = exp(  psi(G_sh[st_G + j]) - log(G_rt[st_G + j]) +psi(L_sh[st_L + j]) - log(L_rt[st_L + j])  )
+				sumphi += phi[phi_st + j]
+			for j in range(k):
+				phi[phi_st + j] *= Y[y_ix] / sumphi
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.nonecheck(False)
+@cython.cdivision(True)
+cdef void update_G_n_L_sh_csr(float* G_sh, float* L_sh,
+							  float* phi, int k, int nU, int nthreads,
+							  int* ix_i, int* st_ix_u, int* u_arr) nogil:
+	cdef int u, i, j
+	cdef int uid, n_uid
+	cdef int st_ix_G, st_ix_L, st_ix_phi
+	for u in prange(nU, schedule='dynamic', num_threads=nthreads):
+		uid = u_arr[u]
+		n_uid = st_ix_u[uid + 1] - st_ix_u[uid]
+		st_ix_G = uid * k
+		for i in range(n_uid):
+			st_ix_L = ix_i[i + st_ix_u[uid]] * k
+			st_ix_phi = (i + st_ix_u[uid]) * k
+			for j in range(k):
+				G_sh[st_ix_G + j] += phi[st_ix_phi + j]
+				L_sh[st_ix_L + j] += phi[st_ix_phi + j]
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.nonecheck(False)
+@cython.cdivision(True)
+cdef void update_G_n_L_sh_csr_small(float* G_sh, float* L_sh, int* st_phi_u,
+							  		float* phi, int k, int nU, int nthreads,
+							  		int* ix_i, int* st_ix_u, int* u_arr) nogil:
+	cdef int u, i, j
+	cdef int uid, n_uid
+	cdef int st_ix_G, st_ix_L, st_ix_phi
+	for u in prange(nU, schedule='dynamic', num_threads=nthreads):
+		uid = u_arr[u]
+		n_uid = st_ix_u[uid + 1] - st_ix_u[uid]
+		st_ix_G = uid * k
+		for i in range(n_uid):
+			st_ix_phi = (st_phi_u[u] + i) * k
+			st_ix_L = ix_i[i + st_ix_u[uid]] * k
+			for j in range(k):
+				G_sh[st_ix_G + j] += phi[st_ix_phi + j]
+				L_sh[st_ix_L + j] += phi[st_ix_phi + j]
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.nonecheck(False)
+@cython.cdivision(True)
+cdef void get_i_batch_st1(int* st_ix_u, int* u_arr, int* out, int nU) nogil:
+	cdef int st_out = 0
+	cdef int u, n_uid, i
+	for u in range(nU):
+		n_uid = st_ix_u[u_arr[u] + 1] - st_ix_u[u_arr[u]]
+		st_out += n_uid
+		out[u + 1] = st_out
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.nonecheck(False)
+@cython.cdivision(True)
+cdef void get_i_batch_st2(int* st_ix_u, int* st_ix_out, int* out, int* ix_i, int* u_arr,
+						  int nU, int nthreads) nogil:
+	cdef int i, u
+	cdef int uid, n_uid, st_out
+	for u in prange(nU, schedule='dynamic', num_threads=nthreads):
+		uid = u_arr[u]
+		n_uid = st_ix_u[uid + 1] - st_ix_u[uid]
+		st_out = st_ix_out[u]
+		for i in range(n_uid):
+			out[st_out + i] = ix_i[st_ix_u[uid] + i]
+
 
 ### Printing output
 ###################
