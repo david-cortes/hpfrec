@@ -304,8 +304,8 @@ def fit_hpf(float a, float a_prime, float b_prime,
 
 				Beta[:,:] = Lambda_shp / Lambda_rte
 
-				k_rte = step_size_batch * (add_k_rte + Theta.sum(axis=1, keepdims=True)) + step_prev * k_rte
-				t_rte = step_size_batch * (add_t_rte + Beta.sum(axis=1, keepdims=True)) + step_prev * t_rte
+				k_rte[users_this_batch] = step_size_batch * (add_k_rte + Theta[users_this_batch].sum(axis=1, keepdims=True)) + step_prev * k_rte[users_this_batch]
+				t_rte[items_this_batch] = step_size_batch * (add_t_rte + Beta[items_this_batch].sum(axis=1, keepdims=True)) + step_prev * t_rte[items_this_batch]
 
 
 		## assessing convergence
