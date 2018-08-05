@@ -46,11 +46,11 @@ class HPF:
     Note
     ----
     If 'check_every' is not None and stop_crit is not 'diff-norm', it will, every N iterations,
-    calculate the log-likelihood of the data. By default, this is the full likelihood, including a constant
-    that depends on the data but not on the parameters and which is quite slow to compute. The reason why
-    it's calculated by default like this is because, if not adding this constant, the number can turn positive
-    and will mess with the stopping criterion for likelihood. You can nevertheless choose to turn this constant off
-    if you are confident that your likelihood values will not get positive.
+    calculate the log-likelihood of the data. By default, this is NOT the full likelihood, (not including a constant
+    that depends on the data but not on the parameters and which is quite slow to compute). The reason why
+    it's calculated by default like this is because otherwise it can result it overflow (number is too big for the data
+    type), but be aware that if not adding this constant, the number can turn positive
+    and will mess with the stopping criterion for likelihood.
 
     Note
     ----
@@ -165,7 +165,7 @@ class HPF:
                  stop_crit='train-llk', check_every=10, stop_thr=1e-3,
                  users_per_batch=None, step_size=lambda x: 1/np.sqrt(x+2),
                  maxiter=100, reindex=True, verbose=True,
-                 random_seed = None, allow_inconsistent_math=False, full_llk=True,
+                 random_seed = None, allow_inconsistent_math=False, full_llk=False,
                  alloc_full_phi=False, keep_data=True, save_folder=None,
                  produce_dicts=True, keep_all_objs=True):
 
@@ -1222,7 +1222,7 @@ class HPF:
                 return items_pool[rec[np.argsort(allpreds[rec])]]
 
     
-    def eval_llk(self, input_df, full_llk=True):
+    def eval_llk(self, input_df, full_llk=False):
         """
         Evaluate log-likelihood (plus constant) for a given dataset
         
