@@ -1008,7 +1008,7 @@ class HPF:
                 self._st_ix_user[(user_id + 1):] += self._n_seen_by_user[user_id] - n_seen_by_user_before
             else:
                 self._n_seen_by_user = np.r_[self._n_seen_by_user, counts_df.shape[0]]
-                self._st_ix_user = np.r_[self._st_ix_user, self._st_ix_user.shape[0] - 1]
+                self._st_ix_user = np.r_[self._st_ix_user, self.seen.shape[0]]
                 self.seen = np.r_[self.seen, counts_df.ItemId.values]
 
         return True
