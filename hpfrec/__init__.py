@@ -99,7 +99,7 @@ class HPF:
         for the global parameters as output (only used when fitting with stochastic variational inference).
         The step size must be a number between zero and one, and should be decresing with bigger iteration numbers.
         Ignored when passing users_per_batch=None.
-    maxiter : int
+    maxiter : int or None
         Maximum number of iterations for which to run the optimization procedure. This corresponds to epochs when
         fitting in batches of users. Recommended to use a lower number when passing a batch size.
     reindex : bool
@@ -217,6 +217,7 @@ class HPF:
         else:
             if stop_crit!='maxiter':
                 raise ValueError("If 'stop_crit' is set to 'maxiter', must provide a maximum number of iterations.")
+            maxiter = 10**10
             
         if check_every is not None:
             assert isinstance(check_every, int)

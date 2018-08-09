@@ -2,7 +2,7 @@
 
 This is a Python package for hierarchical Poisson factorization, a form of probabilistic matrix factorization used for recommender systems with implicit count data, based on the paper _Scalable Recommendation with Hierarchical Poisson Factorization (P. Gopalan, 2015)_.
 
-Although the package was created with recommender systems in mind, it can also be used for other domains, e.g. as a faster alternative to LDA (Latent Ditichlet Allocation), where users become documents and items become words.
+Although the package was created with recommender systems in mind, it can also be used for other domains, e.g. as a faster alternative to LDA (Latent Ditichlet Allocation), where users become documents and items become words. For a similar package using also item/user side information see [ctpfrec](https://github.com/david-cortes/ctpfrec)
 
 Supports parallelization, full-batch variational inference, mini-batch stochastic variational inference (based on batches of data from subsets of users), and different stopping criteria for the coordinate-ascent procedure. The bottleneck computations are written in fast Cython code.
 
@@ -47,7 +47,7 @@ pip install hpfrec
 As it contains Cython code, it requires a C compiler. In Windows, this usually means it requires a Visual Studio installation (or MinGW + GCC), and if using Anaconda, might also require configuring it to use said Visual Studio instead of MinGW, otherwise the installation from `pip` might fail. For more details see this guide:
 [Cython Extensions On Windows](https://github.com/cython/cython/wiki/CythonExtensionsOnWindows)
 
-On Python 2.7 on Windows, it might additionally requiring installing extra Visual Basic modules.
+On Python 2.7 on Windows, it might additionally require installing extra Visual Basic modules (untested).
 
 On Linux and Mac, the `pip` install should work out-of-the-box, as long as the system has `gcc` (included by default in most installs).
 
@@ -112,7 +112,7 @@ recommender.predict(user=10, item=11)
 recommender.predict(user=[10,10,10], item=[1,2,3])
 recommender.predict(user=[10,11,12], item=[4,5,6])
 
-## Evaluating model likelihood
+## Evaluating Poisson likelihood
 recommender.eval_llk(counts_df, full_llk=True)
 
 ## Determining latent factors for a new user, given her item interactions
@@ -162,7 +162,7 @@ It is also internally documented through docstrings (e.g. you can try `help(hpfr
 
 ## Speeding up optimization procedure
 
-For faster fitting and predictions, use scipy and numpy libraries compiled against MKL. In Windows, you can find Python wheels (installable with pip after downloading them) of numpy and scipy precompiled with MKL in [Christoph Gohlke's website](https://www.lfd.uci.edu/~gohlke/pythonlibs/). In Linux and Mac, these come by default in Anaconda installations (but are likely to get overwritten if you enable `conda-forge`). In some small experiments from my side, this yields a near 4x speedup compared to using free linear algebra libraries (for AMD cpu's, the speedup might not be as large).
+For faster fitting and predictions, use SciPy and NumPy libraries compiled against MKL. In Windows, you can find Python wheels (installable with pip after downloading them) of numpy and scipy precompiled with MKL in [Christoph Gohlke's website](https://www.lfd.uci.edu/~gohlke/pythonlibs/). In Linux and Mac, these come by default in Anaconda installations (but are likely to get overwritten if you enable `conda-forge`). In some small experiments from my side, this yields a near 4x speedup compared to using free linear algebra libraries (for AMD cpu's, the speedup might not be as large).
 
 The constructor for HPF allows some parameters to make it run faster (if you know what you're doing): these are `allow_inconsistent_math=True`, `full_llk=False`, `stop_crit='diff-norm'`, `reindex=False`, `verbose=False`. See the documentation for more details.
 
