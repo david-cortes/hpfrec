@@ -45,6 +45,11 @@ class HPF:
 
     Note
     ----
+    DataFrames and arrays passed to '.fit' might be modified inplace - if this is a problem you'll
+    need to pass a copy to them, e.g. 'counts_df=counts_df.copy()'.
+
+    Note
+    ----
     If 'check_every' is not None and stop_crit is not 'diff-norm', it will, every N iterations,
     calculate the log-likelihood of the data. By default, this is NOT the full likelihood, (not including a constant
     that depends on the data but not on the parameters and which is quite slow to compute). The reason why
@@ -305,8 +310,14 @@ class HPF:
         
         Note
         ----
-        Forcibly terminating the procedure should still keep the last calculated Theta and Beta in the
-        object attributes, but is not recommended.
+        DataFrames and arrays passed to '.fit' might be modified inplace - if this is a problem you'll
+        need to pass a copy to them, e.g. 'counts_df=counts_df.copy()'.
+
+        Note
+        ----
+        Forcibly terminating the procedure should still keep the last calculated shape and rate
+        parameter values, but is not recommended. If you need to make predictions on a forced-terminated
+        object, set the attribute 'is_fitted' to 'True'.
 
         Parameters
         ----------
