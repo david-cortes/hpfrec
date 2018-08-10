@@ -27,12 +27,12 @@ setup(
    'scipy',
    'cython'
 ],
-  version = '0.2.1.3',
+  version = '0.2.1.4',
   description = 'Hierarchical Poisson matrix factorization for recommender systems',
   author = 'David Cortes',
   author_email = 'david.cortes.rivera@gmail.com',
   url = 'https://github.com/david-cortes/hpfrec',
-  download_url = 'https://github.com/david-cortes/hpfrec/archive/0.2.1.3.tar.gz',
+  download_url = 'https://github.com/david-cortes/hpfrec/archive/0.2.1.4.tar.gz',
   keywords = ['poisson', 'probabilistic', 'non-negative', 'factorization', 'variational inference', 'collaborative filtering'],
   classifiers = [],
 

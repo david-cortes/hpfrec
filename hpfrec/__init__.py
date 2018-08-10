@@ -15,9 +15,9 @@ class HPF:
     Can use different stopping criteria for the opimization procedure:
 
     1) Run for a fixed number of iterations (stop_crit='maxiter').
-    2) Calculate the log-likelihood every N iterations (stop_crit='train-llk' and check_every)
+    2) Calculate the Poisson log-likelihood every N iterations (stop_crit='train-llk' and check_every)
        and stop once {1 - curr/prev} is below a certain threshold (stop_thr)
-    3) Calculate the log-likelihood in a user-provided validation set (stop_crit='val-llk', val_set and check_every)
+    3) Calculate the Poisson log-likelihood in a user-provided validation set (stop_crit='val-llk', val_set and check_every)
        and stop once {1 - curr/prev} is below a certain threshold. For this criterion, you might want to lower the
        default threshold (see Note).
     4) Check the the difference in the user-factor matrix after every N iterations (stop_crit='diff-norm', check_every)
@@ -59,8 +59,8 @@ class HPF:
 
     Note
     ----
-    If you pass a validation set, it will calculate the log-likelihood *of the non-zero observations
-    only*, rather than the complete likelihood that includes also the combinations of users and items
+    If you pass a validation set, it will calculate the Poisson log-likelihood **of the non-zero observations
+    only**, rather than the complete likelihood that includes also the combinations of users and items
     not present in the data (assumed to be zero), thus it's more likely that you might see positive numbers here.
     Compared to ALS, iterations from this algorithm are a lot faster to compute, so don't be scared about passing
     large numbers for maxiter.
@@ -69,6 +69,12 @@ class HPF:
     ----
     In some unlucky cases, the parameters will become NA in the first iteration, in which case you should see
     weird values for log-likelihood and RMSE. If this happens, try again with a different random seed.
+
+    Note
+    ----
+    Fitting in mini-batches is more prone to numerical instability and compared to full-batch
+    variational inference, it is more likely that all your parameters will turn to NaNs (which
+    means the optimization procedure failed).
 
     Parameters
     ----------
@@ -118,7 +124,7 @@ class HPF:
         which would allow parallelization of the updates for the shape parameters of Lambda and Gamma.
         Ignored (forced to True) in stochastic optimization mode.
     full_llk : bool
-        Whether to calculate the full lok-likehood, including terms that don't depend on the model parameters
+        Whether to calculate the full Poisson log-likehood, including terms that don't depend on the model parameters
         (thus are constant for a given dataset).
     alloc_full_phi : bool
         Whether to allocate the full Phi matrix (size n_samples * k) when using stochastic optimization. Doing so
@@ -140,6 +146,11 @@ class HPF:
         (when passing True here, the model object will have these extra attributes too).
         Without these objects, it's not possible to call functions that alter the model parameters
         given new information after it's already fit.
+    sum_exp_trick : bool
+        Whether to use the sum-exp trick when scaling the multinomial parameters - that is, calculating them as
+        exp(val - maxval)/sum_{val}(exp(val - maxval)) in order to avoid numerical overflow if there are
+        too large numbers. For this kind of model, it is unlikely that it will be required, and it adds a
+        small overhead, but if you notice NaNs in the results or in the likelihood, you might give this option a try.
     
     Attributes
     ----------
@@ -172,7 +183,7 @@ class HPF:
                  maxiter=100, reindex=True, verbose=True,
                  random_seed = None, allow_inconsistent_math=False, full_llk=False,
                  alloc_full_phi=False, keep_data=True, save_folder=None,
-                 produce_dicts=True, keep_all_objs=True):
+                 produce_dicts=True, keep_all_objs=True, sum_exp_trick=False):
 
         ## checking input
         assert isinstance(k, int)
@@ -220,9 +231,9 @@ class HPF:
             assert maxiter>0
             assert isinstance(maxiter, int)
         else:
+            maxiter = 10**10
             if stop_crit!='maxiter':
                 raise ValueError("If 'stop_crit' is set to 'maxiter', must provide a maximum number of iterations.")
-            maxiter = 10**10
             
         if check_every is not None:
             assert isinstance(check_every, int)
@@ -285,6 +296,7 @@ class HPF:
         self.full_llk = bool(full_llk)
         self.alloc_full_phi = bool(alloc_full_phi)
         self.keep_all_objs = bool(keep_all_objs)
+        self.sum_exp_trick = bool(sum_exp_trick)
         self.step_size = step_size
         self.users_per_batch = users_per_batch
 
@@ -318,6 +330,12 @@ class HPF:
         Forcibly terminating the procedure should still keep the last calculated shape and rate
         parameter values, but is not recommended. If you need to make predictions on a forced-terminated
         object, set the attribute 'is_fitted' to 'True'.
+
+        Note
+        ----
+        Fitting in mini-batches is more prone to numerical instability and compared to full-batch
+        variational inference, it is more likely that all your parameters will turn to NaNs (which
+        means the optimization procedure failed).
 
         Parameters
         ----------
@@ -383,6 +401,14 @@ class HPF:
             self.input_df = input_df[['UserId', 'ItemId', 'Count']]
         else:
             raise ValueError("'input_df' must be a pandas data frame or a numpy array")
+
+        obs_zero = input_df.Count.values <= 0
+        if obs_zero.sum() > 0:
+            msg = "'counts_df' contains observations with a count value of zero or less, these will be ignored."
+            msg += " Any user or item associated exclusively with zero-value observations will be excluded."
+            msg += " If using 'reindex=False', make sure that your data still meets the necessary criteria."
+            warnings.warn(msg)
+            input_df = input_df.loc[~obs_zero]
             
         if self.reindex:
             self.input_df['UserId'], self.user_mapping_ = pd.factorize(self.input_df.UserId)
@@ -524,7 +550,7 @@ class HPF:
             self.input_df.Count.values, self.input_df.UserId.values, self.input_df.ItemId.values,
             self.Theta, self.Beta,
             self.maxiter, self.stop_crit, self.check_every, self.stop_thr,
-            self.users_per_batch, self.step_size,
+            self.users_per_batch, self.step_size, cython_loops.cast_int(self.sum_exp_trick),
             self._st_ix_user.astype(ctypes.c_int),
             self.save_folder, self.random_seed, self.verbose,
             self.ncores, cython_loops.cast_int(self.allow_inconsistent_math),
@@ -598,6 +624,12 @@ class HPF:
         Adding new users and/or items without refitting the model might result in worsened results
         for existing users/items. For adding users without altering the parameters for items or for
         other users, see the method 'add_user'.
+
+        Note
+        ----
+        Fitting in mini-batches is more prone to numerical instability and compared to full-batch
+        variational inference, it is more likely that all your parameters will turn to NaNs (which
+        means the optimization procedure failed).
 
         Parameters
         ----------
@@ -838,6 +870,10 @@ class HPF:
         ----
         This function only works with one user at a time.
 
+        Note
+        ----
+        This function is prone to producing all NaNs values.
+
         Parameters
         ----------
         counts_df : DataFrame or array (nsamples, 2)
@@ -886,6 +922,9 @@ class HPF:
                                  cython_loops.cast_int(bool(return_all))
                                  )
 
+        if np.isnan(Theta).sum() > 0:
+            raise ValueError("NaNs encountered in the result. Failed to produce latent factors.")
+
         if return_all:
             return (Theta, temp[0], temp[1], temp[2])
         else:
@@ -908,6 +947,10 @@ class HPF:
         Note
         ----
         For betters results, refit the model again from scratch.
+
+        Note
+        ----
+        This function is prone to producing all NaNs values.
 
         Parameters
         ----------
@@ -988,6 +1031,9 @@ class HPF:
                                  cython_loops.cast_int(random_seed), cython_loops.cast_int(stop_thr),
                                  cython_loops.cast_int(self.keep_all_objs)
                                  )
+
+            if np.isnan(Theta).sum() > 0:
+                raise ValueError("NaNs encountered in the result. Failed to produce latent factors.")
 
             ## adding the data to the model
             if update_existing:
@@ -1236,11 +1282,11 @@ class HPF:
     
     def eval_llk(self, input_df, full_llk=False):
         """
-        Evaluate log-likelihood (plus constant) for a given dataset
+        Evaluate Poisson log-likelihood (plus constant) for a given dataset
         
         Note
         ----
-        This log-likelihood is calculated only for the combinations of users and items
+        This Poisson log-likelihood is calculated only for the combinations of users and items
         provided here, so it's not a complete likelihood, and it might sometimes turn out to
         be a positive number because of this.
         Will filter out the input data by taking only combinations of users

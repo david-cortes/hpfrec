@@ -156,7 +156,7 @@ def fit_hpf(float a, float a_prime, float b_prime,
 			np.ndarray[float, ndim=2] Theta,
 			np.ndarray[float, ndim=2] Beta,
 			int maxiter, str stop_crit, int check_every, float stop_thr,
-			users_per_batch, step_size,
+			users_per_batch, step_size, int sum_exp_trick,
 			np.ndarray[int, ndim=1] st_ix_u,
 			str save_folder, int random_seed, int verbose,
 			int nthreads, int par_sh, int has_valset,
@@ -186,6 +186,8 @@ def fit_hpf(float a, float a_prime, float b_prime,
 
 	cdef np.ndarray[float, ndim=2] phi
 	if (users_per_batch == 0) or alloc_full_phi:
+		if verbose>0:
+			print "Allocating Phi matrix..."
 		phi = np.empty((nY, k), dtype='float32')
 
 	cdef np.ndarray[int, ndim=1] users_numeration, users_this_batch, st_ix_u_batch
@@ -221,7 +223,7 @@ def fit_hpf(float a, float a_prime, float b_prime,
 		if users_per_batch == 0:
 
 			update_phi(&Gamma_shp[0,0], &Gamma_rte[0,0], &Lambda_shp[0,0], &Lambda_rte[0,0],
-							  &phi[0,0], &Y[0], k,
+							  &phi[0,0], &Y[0], k, sum_exp_trick,
 							  &ix_u[0], &ix_i[0], nY, nthreads)
 
 			Gamma_rte = k_shp/k_rte + Beta.sum(axis=0, keepdims=True)
@@ -254,7 +256,7 @@ def fit_hpf(float a, float a_prime, float b_prime,
 			step_size_batch = <float> step_size(i)
 			np.random.shuffle(users_numeration)
 			for bt in range(nbatches):
-				# print "bt: ", bt
+				print "bt: ", bt
 				st_batch = bt * users_per_batch
 				end_batch = min(nU, (bt + 1) * users_per_batch)
 				if st_batch>end_batch:
@@ -337,8 +339,8 @@ def fit_hpf(float a, float a_prime, float b_prime,
 
 	if save_folder != "":
 		save_parameters(verbose, save_folder,
-						["Theta", "Beta", "Gamma_shp", "Gamma_rte", "Lambda_shp", "Lambda_rte", "kappa_rte", "tau_rte", "Phi"],
-						[Theta, Beta, Gamma_shp, Gamma_rte, Lambda_shp, Lambda_rte, k_rte, t_rte, phi/Y.reshape((-1,1))])
+						["Theta", "Beta", "Gamma_shp", "Gamma_rte", "Lambda_shp", "Lambda_rte", "kappa_rte", "tau_rte"],
+						[Theta, Beta, Gamma_shp, Gamma_rte, Lambda_shp, Lambda_rte, k_rte, t_rte])
 
 	## returning objects as needed
 	if keep_all_objs:
@@ -366,7 +368,7 @@ def partial_fit(np.ndarray[float, ndim=1] Y_batch,
 	cdef np.ndarray[float, ndim=2] phi = np.empty((nYbatch, k), dtype='float32')
 	cdef float step_prev = 1 - step_size_batch
 	update_phi(&Gamma_shp[0,0], &Gamma_rte[0,0], &Lambda_shp[0,0], &Lambda_rte[0,0],
-				  &phi[0,0], &Y_batch[0], k,
+				  &phi[0,0], &Y_batch[0], k, 1,
 				  &ix_u_batch[0], &ix_i_batch[0], nYbatch, nthreads)
 	
 	Gamma_rte[:,:] = k_shp/k_rte + Beta.sum(axis=0, keepdims=True)
@@ -427,7 +429,7 @@ def calc_user_factors(float a, float a_prime, float b_prime,
 	## running the loop
 	for i in range(maxiter):
 		update_phi(&Gamma_shp[0], &Gamma_rte[0], &Lambda_shp[0,0], &Lambda_rte[0,0],
-				   &phi[0,0], &Y[0], k, &u_repeated[0], &ix_i[0], nY, nthreads)
+				   &phi[0,0], &Y[0], k, 1, &u_repeated[0], &ix_i[0], nY, nthreads)
 		Gamma_rte = (k_shp/k_rte + Beta.sum(axis=0, keepdims=True)).reshape(-1)
 		Gamma_shp = a + phi.sum(axis=0)
 		Theta[:] = Gamma_shp / Gamma_rte
@@ -463,24 +465,45 @@ def calc_llk(np.ndarray[float, ndim=1] Y, np.ndarray[int, ndim=1] ix_u, np.ndarr
 @cython.nonecheck(False)
 @cython.cdivision(True)
 cdef void update_phi(float* G_sh, float* G_rt, float* L_sh, float* L_rt,
-					 float* phi, float* Y, int k,
+					 float* phi, float* Y, int k, int sum_exp_trick,
 					 int* ix_u, int* ix_i, int nY, int nthreads) nogil:
 	cdef int uid, iid
 	cdef int uid_st, iid_st, phi_st
-	cdef float sumphi
+	cdef float sumphi, maxval
 	cdef int i, j
-	for i in prange(nY, schedule='static', num_threads=nthreads):
-		uid = ix_u[i]
-		iid = ix_i[i]
-		sumphi = 0
-		uid_st = k*uid
-		iid_st = k*iid
-		phi_st = i*k
-		for j in range(k):
-			phi[phi_st + j] = exp(  psi(G_sh[uid_st + j]) - log(G_rt[uid_st + j]) +psi(L_sh[iid_st + j]) - log(L_rt[iid_st + j])  )
-			sumphi += phi[phi_st + j]
-		for j in range(k):
-			phi[phi_st + j] *= Y[i]/sumphi
+
+	if sum_exp_trick:
+		for i in prange(nY, schedule='static', num_threads=nthreads):
+			uid = ix_u[i]
+			iid = ix_i[i]
+			sumphi = 0
+			maxval = - 10**1
+			uid_st = k*uid
+			iid_st = k*iid
+			phi_st = i*k
+			for j in range(k):
+				phi[phi_st + j] = psi(G_sh[uid_st + j]) - log(G_rt[uid_st + j]) + psi(L_sh[iid_st + j]) - log(L_rt[iid_st + j])
+				if phi[phi_st + j] > maxval:
+					maxval = phi[phi_st + j]
+			for j in range(k):
+				phi[phi_st + j] = exp(phi[phi_st + j] - maxval)
+				sumphi += phi[phi_st + j]
+			for j in range(k):
+				phi[phi_st + j] *= Y[i]/sumphi
+
+	else:
+		for i in prange(nY, schedule='static', num_threads=nthreads):
+			uid = ix_u[i]
+			iid = ix_i[i]
+			sumphi = 0
+			uid_st = k*uid
+			iid_st = k*iid
+			phi_st = i*k
+			for j in range(k):
+				phi[phi_st + j] = exp(  psi(G_sh[uid_st + j]) - log(G_rt[uid_st + j]) + psi(L_sh[iid_st + j]) - log(L_rt[iid_st + j])  )
+				sumphi += phi[phi_st + j]
+			for j in range(k):
+				phi[phi_st + j] *= Y[i]/sumphi
 
 
 @cython.boundscheck(False)
@@ -557,7 +580,7 @@ cdef void update_phi_csr(float* G_sh, float* G_rt, float* L_sh, float* L_rt,
 	cdef int u, i, j
 	cdef int uid, n_uid
 	cdef int st_G, st_L, phi_st, y_ix
-	cdef float sumphi
+	cdef float sumrow, maxval
 	for u in prange(nU, schedule='dynamic', num_threads=nthreads):
 		uid = u_arr[u]
 		n_uid = st_ix_u[uid + 1] - st_ix_u[uid]
@@ -566,12 +589,17 @@ cdef void update_phi_csr(float* G_sh, float* G_rt, float* L_sh, float* L_rt,
 			y_ix = i + st_ix_u[uid]
 			st_L = k * ix_i[y_ix]
 			phi_st = y_ix * k
-			sumphi = 0
+			sumrow = 0
+			maxval = - 10**11
 			for j in range(k):
-				phi[phi_st + j] = exp(  psi(G_sh[st_G + j]) - log(G_rt[st_G + j]) +psi(L_sh[st_L + j]) - log(L_rt[st_L + j])  )
-				sumphi += phi[phi_st + j]
+				phi[phi_st + j] = psi(G_sh[st_G + j]) - log(G_rt[st_G + j]) +psi(L_sh[st_L + j]) - log(L_rt[st_L + j])
+				if phi[phi_st + j] > maxval:
+					maxval = phi[phi_st + j]
 			for j in range(k):
-				phi[phi_st + j] *= Y[y_ix] / sumphi
+				phi[phi_st + j] = exp(phi[phi_st + j] - maxval)
+				sumrow += phi[phi_st + j]
+			for j in range(k):
+				phi[phi_st + j] *= Y[y_ix] / sumrow
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -583,7 +611,7 @@ cdef void update_phi_csr_small(float* G_sh, float* G_rt, float* L_sh, float* L_r
 	cdef int u, i, j
 	cdef int uid, n_uid
 	cdef int st_G, st_L, phi_st, y_ix
-	cdef float sumphi
+	cdef float sumrow, maxval
 	for u in prange(nU, schedule='dynamic', num_threads=nthreads):
 		uid = u_arr[u]
 		n_uid = st_ix_u[uid + 1] - st_ix_u[uid]
@@ -592,12 +620,17 @@ cdef void update_phi_csr_small(float* G_sh, float* G_rt, float* L_sh, float* L_r
 			y_ix = i + st_ix_u[uid]
 			st_L = k * ix_i[y_ix]
 			phi_st = (st_phi_u[u] + i) * k
-			sumphi = 0
+			sumrow = 0
+			maxval = - 10**11
 			for j in range(k):
-				phi[phi_st + j] = exp(  psi(G_sh[st_G + j]) - log(G_rt[st_G + j]) +psi(L_sh[st_L + j]) - log(L_rt[st_L + j])  )
-				sumphi += phi[phi_st + j]
+				phi[phi_st + j] = psi(G_sh[st_G + j]) - log(G_rt[st_G + j]) +psi(L_sh[st_L + j]) - log(L_rt[st_L + j])
+				if phi[phi_st + j] > maxval:
+					maxval = phi[phi_st + j]
 			for j in range(k):
-				phi[phi_st + j] *= Y[y_ix] / sumphi
+				phi[phi_st + j] = exp(phi[phi_st + j] - maxval)
+				sumrow += phi[phi_st + j]
+			for j in range(k):
+				phi[phi_st + j] *= Y[y_ix] / sumrow
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
