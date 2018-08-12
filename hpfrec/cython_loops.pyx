@@ -256,11 +256,8 @@ def fit_hpf(float a, float a_prime, float b_prime,
 			step_size_batch = <float> step_size(i)
 			np.random.shuffle(users_numeration)
 			for bt in range(nbatches):
-				print "bt: ", bt
 				st_batch = bt * users_per_batch
 				end_batch = min(nU, (bt + 1) * users_per_batch)
-				if st_batch>end_batch:
-					break
 				users_this_batch = users_numeration[st_batch : end_batch]
 				multiplier_batch = float(nU) / float(end_batch - st_batch)
 				nUbatch = <int> users_this_batch.shape[0]

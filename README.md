@@ -2,7 +2,7 @@
 
 This is a Python package for hierarchical Poisson factorization, a form of probabilistic matrix factorization used for recommender systems with implicit count data, based on the paper _Scalable Recommendation with Hierarchical Poisson Factorization (P. Gopalan, 2015)_.
 
-Although the package was created with recommender systems in mind, it can also be used for other domains, e.g. as a faster alternative to LDA (Latent Ditichlet Allocation), where users become documents and items become words. For a similar package using also item/user side information see [ctpfrec](https://github.com/david-cortes/ctpfrec)
+Although the package was created with recommender systems in mind, it can also be used for other domains, e.g. as a faster alternative to LDA (Latent Ditichlet Allocation), where users become documents and items become words. For a similar package using also item/user side information see [ctpfrec](https://github.com/david-cortes/ctpfrec).
 
 Supports parallelization, full-batch variational inference, mini-batch stochastic variational inference (based on batches of data from subsets of users), and different stopping criteria for the coordinate-ascent procedure. The bottleneck computations are written in fast Cython code.
 
