@@ -21,6 +21,12 @@ def cast_np_int(a):
 
 ### Procedures reusable by package ctpfrec
 ##########################################
+def get_csc_data(ix_u, ix_i, Y):
+	from scipy.sparse import coo_matrix, csc_matrix
+	X = coo_matrix((Y, (ix_u, ix_i)))
+	X = csc_matrix(X)
+	return X.indptr.astype(ctypes.c_int), X.indices.astype(ctypes.c_int), X.data.astype('float32')
+
 def get_unique_items_batch(np.ndarray[int, ndim=1] users_this_batch,
 						   np.ndarray[int, ndim=1] st_ix_u,
 						   np.ndarray[int, ndim=1] ix_i, int nthreads,
@@ -28,9 +34,9 @@ def get_unique_items_batch(np.ndarray[int, ndim=1] users_this_batch,
 	cdef int nusers_batch = users_this_batch.shape[0]
 	cdef np.ndarray[int, ndim=1] st_pos = np.empty(nusers_batch + 1, dtype=users_this_batch.dtype)
 	st_pos[0] = 0
-	get_i_batch_st1(&st_ix_u[0], &users_this_batch[0], &st_pos[0], nusers_batch)
+	get_i_batch_pass1(&st_ix_u[0], &users_this_batch[0], &st_pos[0], nusers_batch)
 	cdef np.ndarray[int, ndim=1] arr_items_batch = np.empty(st_pos[-1], dtype=ix_i.dtype)
-	get_i_batch_st2(&st_ix_u[0], &st_pos[0], &arr_items_batch[0], &ix_i[0], &users_this_batch[0],
+	get_i_batch_pass2(&st_ix_u[0], &st_pos[0], &arr_items_batch[0], &ix_i[0], &users_this_batch[0],
 					nusers_batch, nthreads)
 	items = np.unique(arr_items_batch)
 	if return_ix:
@@ -156,7 +162,7 @@ def fit_hpf(float a, float a_prime, float b_prime,
 			np.ndarray[float, ndim=2] Theta,
 			np.ndarray[float, ndim=2] Beta,
 			int maxiter, str stop_crit, int check_every, float stop_thr,
-			users_per_batch, step_size, int sum_exp_trick,
+			users_per_batch, items_per_batch, step_size, int sum_exp_trick,
 			np.ndarray[int, ndim=1] st_ix_u,
 			str save_folder, int random_seed, int verbose,
 			int nthreads, int par_sh, int has_valset,
@@ -185,19 +191,31 @@ def fit_hpf(float a, float a_prime, float b_prime,
 		Theta, Beta, random_seed, a, a_prime, b_prime, c, c_prime, d_prime)
 
 	cdef np.ndarray[float, ndim=2] phi
-	if (users_per_batch == 0) or alloc_full_phi:
+	if ((users_per_batch == 0) and (items_per_batch == 0)) or alloc_full_phi:
 		if verbose>0:
 			print "Allocating Phi matrix..."
 		phi = np.empty((nY, k), dtype='float32')
 
-	cdef np.ndarray[int, ndim=1] users_numeration, users_this_batch, st_ix_u_batch
-	cdef int nUbatch
+	cdef np.ndarray[int, ndim=1] users_numeration, items_numeration, users_this_batch, items_this_batch, st_ix_id_batch
+	cdef int nUbatch, nIbatch
 	cdef float multiplier_batch, step_prev
+	cdef np.ndarray[int, ndim=1] st_ix_i_copy, ix_u_copy
+	cdef np.ndarray[float, ndim=1] Ycopy
+	full_updates = True
+	if items_per_batch>0:
+		if verbose:
+			print "Creating item indices for stochastic optimization..."
+		items_numeration = np.arange(nI, dtype=ctypes.c_int)
+		nbatches_i = int(np.ceil(float(nI) / float(items_per_batch)))
+		st_ix_i_copy, ix_u_copy, Ycopy = get_csc_data(ix_u, ix_i, Y)
+		full_updates = False
 	if users_per_batch != 0:
 		users_numeration = np.arange(nU, dtype=ctypes.c_int)
-		nbatches = int(np.ceil(float(nU) / float(users_per_batch)))
-		if random_seed > 0:
-			np.random.seed(random_seed)
+		nbatches_u = int(np.ceil(float(nU) / float(users_per_batch)))
+		full_updates = False
+
+	if random_seed > 0:
+		np.random.seed(random_seed)
 
 	cdef float add_k_rte = a_prime/b_prime
 	cdef float add_t_rte = c_prime/d_prime
@@ -220,7 +238,7 @@ def fit_hpf(float a, float a_prime, float b_prime,
 	for i in range(maxiter):
 
 		## Full-batch updates
-		if users_per_batch == 0:
+		if full_updates:
 
 			update_phi(&Gamma_shp[0,0], &Gamma_rte[0,0], &Lambda_shp[0,0], &Lambda_rte[0,0],
 							  &phi[0,0], &Y[0], k, sum_exp_trick,
@@ -251,60 +269,125 @@ def fit_hpf(float a, float a_prime, float b_prime,
 			k_rte = add_k_rte + Theta.sum(axis=1, keepdims=True)
 			t_rte = add_t_rte + Beta.sum(axis=1, keepdims=True)
 
-		## Mini-batch epochs (stochastic variational inference)
+		## Mini-batch epoch (stochastic variational inference)
 		else:
 			step_size_batch = <float> step_size(i)
-			np.random.shuffle(users_numeration)
-			for bt in range(nbatches):
-				st_batch = bt * users_per_batch
-				end_batch = min(nU, (bt + 1) * users_per_batch)
-				users_this_batch = users_numeration[st_batch : end_batch]
-				multiplier_batch = float(nU) / float(end_batch - st_batch)
-				nUbatch = <int> users_this_batch.shape[0]
-
-				# items_this_batch = get_unique_items_batch(users_this_batch, st_ix_u, ix_i, nthreads)
-				if alloc_full_phi:
-					items_this_batch = get_unique_items_batch(users_this_batch, st_ix_u, ix_i, nthreads, False)
+			step_prev = 1 - step_size_batch
+			if (users_per_batch>0) and (items_per_batch>0):
+				if ((i+1) % 2) == 0:
+					user_epoch = True
 				else:
-					items_this_batch, st_ix_u_batch = get_unique_items_batch(users_this_batch, st_ix_u, ix_i, nthreads, True)
-					phi = np.empty((st_ix_u_batch[-1], k), dtype='float32')
-				step_prev = 1 - step_size_batch
+					user_epoch = False
+			elif (users_per_batch>0) and (items_per_batch==0):
+				user_epoch = True
+			else:
+				user_epoch = False
 
-				if alloc_full_phi:
-					update_phi_csr(&Gamma_shp[0,0], &Gamma_rte[0,0], &Lambda_shp[0,0], &Lambda_rte[0,0],
-							   &phi[0,0], &Y[0], &ix_i[0], &st_ix_u[0], &users_this_batch[0],
-							   k, nUbatch, nthreads)
-				else:
-					update_phi_csr_small(&Gamma_shp[0,0], &Gamma_rte[0,0], &Lambda_shp[0,0], &Lambda_rte[0,0],
-							   &phi[0,0], &Y[0], &ix_i[0], &st_ix_u[0], &users_this_batch[0], &st_ix_u_batch[0],
-							   k, nUbatch, nthreads)
-				
-				Gamma_rte = k_shp/k_rte + Beta.sum(axis=0, keepdims=True)
-				
-				Lambda_shp_prev = Lambda_shp[items_this_batch,:].copy()
+			if user_epoch:
+				## users epoch
+				np.random.shuffle(users_numeration)
+				for bt in range(nbatches_u):
+					# print "bt: ", bt
+					st_batch = bt * users_per_batch
+					end_batch = min(nU, (bt + 1) * users_per_batch)
+					users_this_batch = users_numeration[st_batch : end_batch]
+					multiplier_batch = float(nU) / float(end_batch - st_batch)
+					nUbatch = <int> users_this_batch.shape[0]
 
-				Gamma_shp[users_this_batch,:] = a
-				Lambda_shp[items_this_batch,:] = c
+					if alloc_full_phi:
+						items_this_batch = get_unique_items_batch(users_this_batch, st_ix_u, ix_i, nthreads, False)
+					else:
+						items_this_batch, st_ix_id_batch = get_unique_items_batch(users_this_batch, st_ix_u, ix_i, nthreads, True)
+						phi = np.empty((st_ix_id_batch[-1], k), dtype='float32')
 
-				if alloc_full_phi:
-					update_G_n_L_sh_csr(&Gamma_shp[0,0], &Lambda_shp[0,0], &phi[0,0],
-									k, nUbatch, nthreads,
-									&ix_i[0], &st_ix_u[0], &users_this_batch[0])
-				else:
-					update_G_n_L_sh_csr_small(&Gamma_shp[0,0], &Lambda_shp[0,0], &st_ix_u_batch[0], &phi[0,0],
-									k, nUbatch, nthreads,
-									&ix_i[0], &st_ix_u[0], &users_this_batch[0])
+					if alloc_full_phi:
+						update_phi_csr(&Gamma_shp[0,0], &Gamma_rte[0,0], &Lambda_shp[0,0], &Lambda_rte[0,0],
+								   &phi[0,0], &Y[0], &ix_i[0], &st_ix_u[0], &users_this_batch[0],
+								   k, nUbatch, nthreads)
+					else:
+						update_phi_csr_small(&Gamma_shp[0,0], &Gamma_rte[0,0], &Lambda_shp[0,0], &Lambda_rte[0,0],
+								   &phi[0,0], &Y[0], &ix_i[0], &st_ix_u[0], &users_this_batch[0], &st_ix_id_batch[0],
+								   k, nUbatch, nthreads)
+					
+					Gamma_rte = k_shp/k_rte + Beta.sum(axis=0, keepdims=True)
+					
+					Lambda_shp_prev = Lambda_shp[items_this_batch,:].copy()
 
-				Lambda_shp[items_this_batch,:] = step_size_batch * multiplier_batch * Lambda_shp[items_this_batch,:] + step_prev * Lambda_shp_prev
+					Gamma_shp[users_this_batch,:] = a
+					Lambda_shp[items_this_batch,:] = c
 
-				Theta[:,:] = Gamma_shp / Gamma_rte
+					if alloc_full_phi:
+						update_G_n_L_sh_csr(&Gamma_shp[0,0], &Lambda_shp[0,0], &phi[0,0],
+										k, nUbatch, nthreads,
+										&ix_i[0], &st_ix_u[0], &users_this_batch[0])
+					else:
+						update_G_n_L_sh_csr_small(&Gamma_shp[0,0], &Lambda_shp[0,0], &st_ix_id_batch[0], &phi[0,0],
+										k, nUbatch, nthreads,
+										&ix_i[0], &st_ix_u[0], &users_this_batch[0])
 
-				Lambda_rte[items_this_batch,:] = step_size_batch * (t_shp/t_rte[items_this_batch] + Theta.sum(axis=0, keepdims=False)) + step_prev * Lambda_rte[items_this_batch,:]
+					Lambda_shp[items_this_batch,:] = step_size_batch * multiplier_batch * Lambda_shp[items_this_batch,:] + step_prev * Lambda_shp_prev
 
-				Beta[:,:] = Lambda_shp / Lambda_rte
+					Theta[:,:] = Gamma_shp / Gamma_rte
 
-				k_rte[users_this_batch] = step_size_batch * (add_k_rte + Theta[users_this_batch].sum(axis=1, keepdims=True)) + step_prev * k_rte[users_this_batch]
-				t_rte[items_this_batch] = step_size_batch * (add_t_rte + Beta[items_this_batch].sum(axis=1, keepdims=True)) + step_prev * t_rte[items_this_batch]
+					Lambda_rte[items_this_batch,:] = step_size_batch * (t_shp/t_rte[items_this_batch] + Theta.sum(axis=0, keepdims=False)) + step_prev * Lambda_rte[items_this_batch,:]
+
+					Beta[:,:] = Lambda_shp / Lambda_rte
+
+					k_rte[users_this_batch] = step_size_batch * (add_k_rte + Theta[users_this_batch].sum(axis=1, keepdims=True)) + step_prev * k_rte[users_this_batch]
+					t_rte[items_this_batch] = step_size_batch * (add_t_rte + Beta[items_this_batch].sum(axis=1, keepdims=True)) + step_prev * t_rte[items_this_batch]
+
+			else:
+				## items epoch
+				np.random.shuffle(items_numeration)
+				for bt in range(nbatches_i):
+					# print "bt: ", bt
+					st_batch = bt * items_per_batch
+					end_batch = min(nI, (bt + 1) * items_per_batch)
+					items_this_batch = items_numeration[st_batch : end_batch]
+					multiplier_batch = float(nI) / float(end_batch - st_batch)
+					nIbatch = <int> items_this_batch.shape[0]
+
+					if alloc_full_phi:
+						users_this_batch = get_unique_items_batch(items_this_batch, st_ix_i_copy, ix_u_copy, nthreads, False)
+					else:
+						users_this_batch, st_ix_id_batch = get_unique_items_batch(items_this_batch, st_ix_i_copy, ix_u_copy, nthreads, True)
+						phi = np.empty((st_ix_id_batch[-1], k), dtype='float32')
+
+					if alloc_full_phi:
+						update_phi_csr(&Lambda_shp[0,0], &Lambda_rte[0,0], &Gamma_shp[0,0], &Gamma_rte[0,0],
+								   &phi[0,0], &Ycopy[0], &ix_u_copy[0], &st_ix_i_copy[0], &items_this_batch[0],
+								   k, nIbatch, nthreads)
+					else:
+						update_phi_csr_small(&Lambda_shp[0,0], &Lambda_rte[0,0], &Gamma_shp[0,0], &Gamma_rte[0,0],
+								   &phi[0,0], &Ycopy[0], &ix_u_copy[0], &st_ix_i_copy[0], &items_this_batch[0], &st_ix_id_batch[0],
+								   k, nIbatch, nthreads)
+					
+					Lambda_rte = t_shp/t_rte + Theta.sum(axis=0, keepdims=True)
+					
+					Gamma_shp_prev = Gamma_shp[users_this_batch,:].copy()
+
+					Gamma_shp[users_this_batch,:] = a
+					Lambda_shp[items_this_batch,:] = c
+
+					if alloc_full_phi:
+						update_G_n_L_sh_csr(&Lambda_shp[0,0], &Gamma_shp[0,0], &phi[0,0],
+										k, nIbatch, nthreads,
+										&ix_u_copy[0], &st_ix_i_copy[0], &items_this_batch[0])
+					else:
+						update_G_n_L_sh_csr_small(&Lambda_shp[0,0], &Gamma_shp[0,0], &st_ix_id_batch[0], &phi[0,0],
+										k, nIbatch, nthreads,
+										&ix_u_copy[0], &st_ix_i_copy[0], &items_this_batch[0])
+
+					Gamma_shp[users_this_batch,:] = step_size_batch * multiplier_batch * Gamma_shp[users_this_batch,:] + step_prev * Gamma_shp_prev
+
+					Beta[:,:] = Lambda_shp / Lambda_rte
+
+					Gamma_rte[users_this_batch,:] = step_size_batch * (k_shp/k_rte[users_this_batch] + Beta.sum(axis=0, keepdims=False)) + step_prev * Gamma_rte[users_this_batch,:]
+
+					Theta[:,:] = Gamma_shp / Gamma_rte
+
+					k_rte[users_this_batch] = step_size_batch * (add_k_rte + Theta[users_this_batch].sum(axis=1, keepdims=True)) + step_prev * k_rte[users_this_batch]
+					t_rte[items_this_batch] = step_size_batch * (add_t_rte + Beta[items_this_batch].sum(axis=1, keepdims=True)) + step_prev * t_rte[items_this_batch]
 
 
 		## assessing convergence
@@ -359,7 +442,7 @@ def partial_fit(np.ndarray[float, ndim=1] Y_batch,
 				float k_shp, float t_shp, int k,
 				users_this_batch, items_this_batch, par_sh,
 				float step_size_batch, float multiplier_batch,
-				int nthreads
+				int nthreads, user_batch
 				):
 	cdef int nYbatch = Y_batch.shape[0]
 	cdef np.ndarray[float, ndim=2] phi = np.empty((nYbatch, k), dtype='float32')
@@ -368,9 +451,12 @@ def partial_fit(np.ndarray[float, ndim=1] Y_batch,
 				  &phi[0,0], &Y_batch[0], k, 1,
 				  &ix_u_batch[0], &ix_i_batch[0], nYbatch, nthreads)
 	
-	Gamma_rte[:,:] = k_shp/k_rte + Beta.sum(axis=0, keepdims=True)
-	
-	Lambda_shp_prev = Lambda_shp[items_this_batch,:].copy()
+	if user_batch:
+		Gamma_rte[:,:] = k_shp/k_rte + Beta.sum(axis=0, keepdims=True)
+		Lambda_shp_prev = Lambda_shp[items_this_batch,:].copy()
+	else:
+		Lambda_rte[:,:] = t_shp/t_rte + Theta.sum(axis=0, keepdims=True)
+		Gamma_shp_prev = Gamma_shp[users_this_batch,:].copy()
 
 	Gamma_shp[users_this_batch,:] = a
 	Lambda_shp[items_this_batch,:] = c
@@ -384,16 +470,20 @@ def partial_fit(np.ndarray[float, ndim=1] Y_batch,
 						  &phi[0,0], k,
 						  &ix_u_batch[0], &ix_i_batch[0],  nYbatch)
 
-	Lambda_shp[items_this_batch,:] = step_size_batch * multiplier_batch * Lambda_shp[items_this_batch,:] + step_prev * Lambda_shp_prev
-
-	Theta[:,:] = Gamma_shp / Gamma_rte
-
-	Lambda_rte[items_this_batch,:] = step_size_batch * (t_shp/t_rte[items_this_batch] + Theta.sum(axis=0, keepdims=False)) + step_prev * Lambda_rte[items_this_batch,:]
-
-	Beta[:,:] = Lambda_shp / Lambda_rte
+	if user_batch:
+		Lambda_shp[items_this_batch,:] = step_size_batch * multiplier_batch * Lambda_shp[items_this_batch,:] + step_prev * Lambda_shp_prev
+		Theta[:,:] = Gamma_shp / Gamma_rte
+		Lambda_rte[items_this_batch,:] = step_size_batch * (t_shp/t_rte[items_this_batch] + Theta.sum(axis=0, keepdims=False)) + step_prev * Lambda_rte[items_this_batch,:]
+		Beta[:,:] = Lambda_shp / Lambda_rte
+	else:
+		Gamma_shp[users_this_batch,:] = step_size_batch * multiplier_batch * Gamma_shp[users_this_batch,:] + step_prev * Gamma_shp_prev
+		Beta[:,:] = Lambda_shp / Lambda_rte
+		Gamma_rte[users_this_batch,:] = step_size_batch * (k_shp/k_rte[users_this_batch] + Beta.sum(axis=0, keepdims=False)) + step_prev * Gamma_rte[users_this_batch,:]
+		Theta[:,:] = Gamma_shp / Gamma_rte
 
 	k_rte[:,:] = step_size_batch * (add_k_rte + Theta.sum(axis=1, keepdims=True)) + step_prev * k_rte
 	t_rte[:,:] = step_size_batch * (add_t_rte + Beta.sum(axis=1, keepdims=True)) + step_prev * t_rte
+
 
 def calc_user_factors(float a, float a_prime, float b_prime,
 					  float c, float c_prime, float d_prime,
@@ -581,8 +671,8 @@ cdef void update_phi_csr(float* G_sh, float* G_rt, float* L_sh, float* L_rt,
 	for u in prange(nU, schedule='dynamic', num_threads=nthreads):
 		uid = u_arr[u]
 		n_uid = st_ix_u[uid + 1] - st_ix_u[uid]
+		st_G = k * uid
 		for i in range(n_uid):
-			st_G = k * uid
 			y_ix = i + st_ix_u[uid]
 			st_L = k * ix_i[y_ix]
 			phi_st = y_ix * k
@@ -612,8 +702,8 @@ cdef void update_phi_csr_small(float* G_sh, float* G_rt, float* L_sh, float* L_r
 	for u in prange(nU, schedule='dynamic', num_threads=nthreads):
 		uid = u_arr[u]
 		n_uid = st_ix_u[uid + 1] - st_ix_u[uid]
+		st_G = k * uid
 		for i in range(n_uid):
-			st_G = k * uid
 			y_ix = i + st_ix_u[uid]
 			st_L = k * ix_i[y_ix]
 			phi_st = (st_phi_u[u] + i) * k
@@ -675,7 +765,7 @@ cdef void update_G_n_L_sh_csr_small(float* G_sh, float* L_sh, int* st_phi_u,
 @cython.wraparound(False)
 @cython.nonecheck(False)
 @cython.cdivision(True)
-cdef void get_i_batch_st1(int* st_ix_u, int* u_arr, int* out, int nU) nogil:
+cdef void get_i_batch_pass1(int* st_ix_u, int* u_arr, int* out, int nU) nogil:
 	cdef int st_out = 0
 	cdef int u, n_uid, i
 	for u in range(nU):
@@ -687,7 +777,7 @@ cdef void get_i_batch_st1(int* st_ix_u, int* u_arr, int* out, int nU) nogil:
 @cython.wraparound(False)
 @cython.nonecheck(False)
 @cython.cdivision(True)
-cdef void get_i_batch_st2(int* st_ix_u, int* st_ix_out, int* out, int* ix_i, int* u_arr,
+cdef void get_i_batch_pass2(int* st_ix_u, int* st_ix_out, int* out, int* ix_i, int* u_arr,
 						  int nU, int nthreads) nogil:
 	cdef int i, u
 	cdef int uid, n_uid, st_out

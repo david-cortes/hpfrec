@@ -2,11 +2,13 @@
 
 This is a Python package for hierarchical Poisson factorization, a form of probabilistic matrix factorization used for recommender systems with implicit count data, based on the paper _Scalable Recommendation with Hierarchical Poisson Factorization (P. Gopalan, 2015)_.
 
-Although the package was created with recommender systems in mind, it can also be used for other domains, e.g. as a faster alternative to LDA (Latent Ditichlet Allocation), where users become documents and items become words. For a similar package using also item/user side information see [ctpfrec](https://github.com/david-cortes/ctpfrec).
+Although the package was created with recommender systems in mind, it can also be used for other domains, e.g. as a faster alternative to LDA (Latent Ditichlet Allocation), where users become documents and items become words.
 
-Supports parallelization, full-batch variational inference, mini-batch stochastic variational inference (based on batches of data from subsets of users), and different stopping criteria for the coordinate-ascent procedure. The bottleneck computations are written in fast Cython code.
+Supports parallelization, full-batch variational inference, mini-batch stochastic variational inference (based on batches of data from subsets of users), and different stopping criteria for the coordinate-ascent procedure. The main computations are written in fast Cython code.
 
-As a point of reference, fitting the model through full-batch updates to the MillionSong TasteProfile dataset (48M records from 1M users on 370K items) took around 45 minutes on a server from Google Cloud with Skylake CPU when using 24 cores.
+As a point of reference, fitting the model through full-batch updates to the MillionSong TasteProfile dataset (48M records from 1M users on 380K items) took around 45 minutes on a server from Google Cloud with Skylake CPU when using 24 cores.
+
+For a similar package using also item/user side information see [ctpfrec](https://github.com/david-cortes/ctpfrec).
 
 ## Model description
 
@@ -32,7 +34,7 @@ However, Poisson likelihood is given by the formula:
 If taking the logarithm (log-likelihood), then this becomes:
 ```l(y) = -log(y!) + y*log(yhat) - yhat```
 
-Since `log(0!) = 0`, and the sum of predictions for all combinations of users and items can be quickly calculated by `sum yhat = sum_{i,j} <U_i, V_j> = <sum_i U_i, sum_j V_j>` (since `U` and `V` are non-negative matrices), it means the model doesn't ever need to make calculations on values that are equal to zero - simply not adding them to calculations would implicitly assume that they are zero.
+Since `log(0!) = 0`, `0*log(yhat) = 0`, and the sum of predictions for all combinations of users and items can be quickly calculated by `sum yhat = sum_{i,j} <U_i, V_j> = <sum_i U_i, sum_j V_j>` (since `U` and `V` are non-negative matrices), it means the model doesn't ever need to make calculations on values that are equal to zero in order to determine their Poisson log-likelihood.
 
 Moreover, negative Poisson log-likelihood is a more appropriate loss for count data than squared loss, which tends to produce not-so-good results when the values to predict follow an exponential rather than a normal distribution.
 
@@ -78,15 +80,15 @@ recommender = HPF(users_per_batch = 20)
 
 ## Full function call
 recommender = HPF(
-	k=20,
-	a=.3, a_prime=.3, b_prime=1.0,
-	c=.3, c_prime=.3, d_prime=1.0,
-	ncores=-1, stop_crit='train-llk', check_every=10, stop_thr=1e-3,
-	users_per_batch=None, step_size=lambda x: 1/np.sqrt(x+1),
-	maxiter=100, reindex=True, random_seed=None,
-	allow_inconsistent_math=False, verbose=True, full_llk=True,
-	keep_data=True, save_folder=None, produce_dicts=True
-	)
+	k=30, a=0.3, a_prime=0.3, b_prime=1.0,
+	c=0.3, c_prime=0.3, d_prime=1.0, ncores=-1,
+	stop_crit='train-llk', check_every=10, stop_thr=1e-3,
+	users_per_batch=None, items_per_batch=None, step_size=lambda x: 1/np.sqrt(x+2),
+	maxiter=100, reindex=True, verbose=True,
+	random_seed = None, allow_inconsistent_math=False, full_llk=False,
+	alloc_full_phi=False, keep_data=True, save_folder=None,
+	produce_dicts=True, keep_all_objs=True, sum_exp_trick=False
+)
 
 ## Fitting the model to the data
 recommender.fit(counts_df)
@@ -139,6 +141,12 @@ For a more detailed example, see the IPython notebook [recommending songs with E
 
 This package contains only functionality related to fitting this model. For general evaluation metrics for recommendations on implicit data see other packages such as [lightFM](https://github.com/lyst/lightfm).
 
+## Documentation
+
+Documentation is available at readthedocs: [http://hpfrec.readthedocs.io](http://hpfrec.readthedocs.io/en/latest/)
+
+It is also internally documented through docstrings (e.g. you can try `help(hpfrec.HPF))`, `help(hpfrec.HPF.fit)`, etc.
+
 ## Saving model with pickle
 
 Using pickle to save an `HPF` object might fail due to problems with lambda functions. The following solves it:
@@ -153,12 +161,6 @@ pickle.dump(h, open("HPF_obj.p", "wb"))
 ```
 
 (Be aware though that afterwards it won't be possible to use `partial_fit` or `add_user` with updates to item parameters.)
-
-## Documentation
-
-Documentation is available at readthedocs: [http://hpfrec.readthedocs.io](http://hpfrec.readthedocs.io/en/latest/)
-
-It is also internally documented through docstrings (e.g. you can try `help(hpfrec.HPF))`, `help(hpfrec.HPF.fit)`, etc.
 
 ## Speeding up optimization procedure
 
