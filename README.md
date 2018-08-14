@@ -4,7 +4,7 @@ This is a Python package for hierarchical Poisson factorization, a form of proba
 
 Although the package was created with recommender systems in mind, it can also be used for other domains, e.g. as a faster alternative to LDA (Latent Ditichlet Allocation), where users become documents and items become words.
 
-Supports parallelization, full-batch variational inference, mini-batch stochastic variational inference (based on batches of data from subsets of users), and different stopping criteria for the coordinate-ascent procedure. The main computations are written in fast Cython code.
+Supports parallelization, full-batch variational inference, mini-batch stochastic variational inference (alternating between epochs sampling batches of users and epochs sampling batches of items), and different stopping criteria for the coordinate-ascent procedure. The main computations are written in fast Cython code.
 
 As a point of reference, fitting the model through full-batch updates to the MillionSong TasteProfile dataset (48M records from 1M users on 380K items) took around 45 minutes on a server from Google Cloud with Skylake CPU when using 24 cores.
 
