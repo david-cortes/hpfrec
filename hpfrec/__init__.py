@@ -510,7 +510,7 @@ class HPF:
 
 		if self.reindex:
 			self.val_set['UserId'] = pd.Categorical(self.val_set.UserId, self.user_mapping_).codes
-			self.val_set['ItemId'] = pd.Categorical(self.val_set.ItemId, self.user_mapping_).codes
+			self.val_set['ItemId'] = pd.Categorical(self.val_set.ItemId, self.item_mapping_).codes
 			self.val_set = self.val_set.loc[(self.val_set.UserId != (-1)) & (self.val_set.ItemId != (-1))]
 			if self.val_set.shape[0] == 0:
 				if valset:
