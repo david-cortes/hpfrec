@@ -525,9 +525,9 @@ class HPF:
 									 "in common with the training set.")
 			else:
 				self.val_set.reset_index(drop=True, inplace=True)
-				self.val_set['Count'] = self.val_set.Count.astype('float32')
-				self.val_set['UserId'] = self.val_set.UserId.astype(ctypes.c_int)
-				self.val_set['ItemId'] = self.val_set.ItemId.astype(ctypes.c_int)
+		self.val_set['Count'] = self.val_set.Count.astype('float32')
+		self.val_set['UserId'] = self.val_set.UserId.astype(ctypes.c_int)
+		self.val_set['ItemId'] = self.val_set.ItemId.astype(ctypes.c_int)
 		return None
 			
 	def _store_metadata(self, for_partial_fit=False):

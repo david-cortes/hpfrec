@@ -108,7 +108,7 @@ recommender.partial_fit(counts_df.loc[counts_df.UserId.isin(users_batch2)])
 recommender.partial_fit(counts_df.loc[counts_df.UserId.isin(users_batch3)])
 
 ## Making predictions
-recommender.topN(user=10, n=10, exclude_seen=True)
+# recommender.topN(user=10, n=10, exclude_seen=True) ## not available when using 'partial_fit'
 recommender.topN(user=10, n=10, exclude_seen=False, items_pool=np.array([1,2,3,4]))
 recommender.predict(user=10, item=11)
 recommender.predict(user=[10,10,10], item=[1,2,3])
