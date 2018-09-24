@@ -632,7 +632,7 @@ class HPF:
 		if self.reindex:
 			if self.produce_dicts:
 				try:
-					counts_df['ItemId'] = counts_df.ItemId.map(lambda x: self.item_dict_[user])
+					counts_df['ItemId'] = counts_df.ItemId.map(lambda x: self.item_dict_[x])
 				except:
 					raise ValueError("Can only make calculations for items that were in the training set.")
 			else:
@@ -1046,7 +1046,7 @@ class HPF:
 		if update_existing:
 			## checking that the user already exists
 			if self.produce_dicts and self.reindex:
-				user_id = self.user_dict_[user]
+				user_id = self.user_dict_[user_id]
 			else:
 				if self.reindex:
 					user_id = pd.Categorical(np.array([user_id]), self.user_mapping_).codes[0]
