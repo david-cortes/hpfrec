@@ -436,6 +436,7 @@ class HPF:
 			msg = "'counts_df' contains observations with a count value less than 1, these will be ignored."
 			msg += " Any user or item associated exclusively with zero-value observations will be excluded."
 			msg += " If using 'reindex=False', make sure that your data still meets the necessary criteria."
+			msg += " If you still want to use these observations, set 'stop_crit' to 'diff-norm' or 'maxiter'."
 			warnings.warn(msg)
 			input_df = input_df.loc[~obs_zero]
 			
