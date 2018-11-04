@@ -471,8 +471,8 @@ class HPF:
 					pf.write("random seed: None\n")
 		
 		self.input_df['Count'] = self.input_df.Count.astype('float32')
-		self.input_df['UserId'] = self.input_df.UserId.astype(ctypes.c_int)
-		self.input_df['ItemId'] = self.input_df.ItemId.astype(ctypes.c_int)
+		self.input_df['UserId'] = self.input_df.UserId.astype(ctypes.c_size_t)
+		self.input_df['ItemId'] = self.input_df.ItemId.astype(ctypes.c_size_t)
 
 		if self.users_per_batch != 0:
 			if self.nusers < self.users_per_batch:
@@ -527,18 +527,18 @@ class HPF:
 			else:
 				self.val_set.reset_index(drop=True, inplace=True)
 		self.val_set['Count'] = self.val_set.Count.astype('float32')
-		self.val_set['UserId'] = self.val_set.UserId.astype(ctypes.c_int)
-		self.val_set['ItemId'] = self.val_set.ItemId.astype(ctypes.c_int)
+		self.val_set['UserId'] = self.val_set.UserId.astype(ctypes.c_size_t)
+		self.val_set['ItemId'] = self.val_set.ItemId.astype(ctypes.c_size_t)
 		return None
 			
 	def _store_metadata(self, for_partial_fit=False):
 		if self.verbose and for_partial_fit:
 			print("Creating user indices for stochastic optimization...")
-		X = coo_matrix((self.input_df.Count.values, (self.input_df.UserId.values, self.input_df.ItemId.values)))
+		X = coo_matrix((self.input_df.Count.values, (self.input_df.UserId.values, self.input_df.ItemId.values)), shape=(self.nusers, self.nitems))
 		X = csr_matrix(X)
 		self._n_seen_by_user = X.indptr[1:] - X.indptr[:-1]
 		if for_partial_fit:
-			self._st_ix_user = X.indptr.astype(ctypes.c_int)
+			self._st_ix_user = X.indptr.astype(ctypes.c_size_t)
 			self.input_df.sort_values('UserId', inplace=True)
 		else:
 			self._st_ix_user = X.indptr[:-1]
@@ -549,9 +549,9 @@ class HPF:
 		## setting all parameters and data to the right type
 		self.Theta = np.empty((self.nusers, self.k), dtype='float32')
 		self.Beta = np.empty((self.nitems, self.k), dtype='float32')
-		self.k = cython_loops.cast_int(self.k)
-		self.nusers = cython_loops.cast_int(self.nusers)
-		self.nitems = cython_loops.cast_int(self.nitems)
+		self.k = cython_loops.cast_size_t(self.k)
+		self.nusers = cython_loops.cast_size_t(self.nusers)
+		self.nitems = cython_loops.cast_size_t(self.nitems)
 		self.ncores = cython_loops.cast_int(self.ncores)
 		self.maxiter = cython_loops.cast_int(self.maxiter)
 		self.verbose = cython_loops.cast_int(self.verbose)
@@ -576,14 +576,14 @@ class HPF:
 		if self.val_set is None:
 			use_valset = cython_loops.cast_int(0)
 			self.val_set = pd.DataFrame(np.empty((0,3)), columns=['UserId','ItemId','Count'])
-			self.val_set['UserId'] = self.val_set.UserId.astype(ctypes.c_int)
-			self.val_set['ItemId'] = self.val_set.ItemId.astype(ctypes.c_int)
+			self.val_set['UserId'] = self.val_set.UserId.astype(ctypes.c_size_t)
+			self.val_set['ItemId'] = self.val_set.ItemId.astype(ctypes.c_size_t)
 			self.val_set['Count'] = self.val_set.Count.values.astype('float32')
 		else:
 			use_valset = cython_loops.cast_int(1)
 
 		if self.users_per_batch == 0:
-			self._st_ix_user = np.arange(1).astype(ctypes.c_int)
+			self._st_ix_user = np.arange(1).astype(ctypes.c_size_t)
 
 		self.niter, temp = cython_loops.fit_hpf(
 			self.a, self.a_prime, self.b_prime,
@@ -593,7 +593,7 @@ class HPF:
 			self.maxiter, self.stop_crit, self.check_every, self.stop_thr,
 			self.users_per_batch, self.items_per_batch,
 			self.step_size, cython_loops.cast_int(self.sum_exp_trick),
-			self._st_ix_user.astype(ctypes.c_int),
+			self._st_ix_user.astype(ctypes.c_size_t),
 			self.save_folder, self.random_seed, self.verbose,
 			self.ncores, cython_loops.cast_int(self.allow_inconsistent_math),
 			use_valset,
@@ -641,7 +641,7 @@ class HPF:
 				if (counts_df.ItemId == -1).sum() > 0:
 					raise ValueError("Can only make calculations for items that were in the training set.")
 
-		counts_df['ItemId'] = counts_df.ItemId.values.astype(ctypes.c_int)
+		counts_df['ItemId'] = counts_df.ItemId.values.astype(ctypes.c_size_t)
 		counts_df['Count'] = counts_df.ItemId.values.astype(ctypes.c_float)
 		return counts_df
 
@@ -795,17 +795,17 @@ class HPF:
 		assert counts_df.shape[0] > 0
 
 		Y_batch = counts_df.Count.values.astype('float32')
-		ix_u_batch = counts_df.UserId.values.astype(ctypes.c_int)
-		ix_i_batch = counts_df.ItemId.values.astype(ctypes.c_int)
+		ix_u_batch = counts_df.UserId.values.astype(ctypes.c_size_t)
+		ix_i_batch = counts_df.ItemId.values.astype(ctypes.c_size_t)
 
 		if users_in_batch is None:
 			users_in_batch = np.unique(ix_u_batch)
 		else:
-			users_in_batch = np.array(users_in_batch).astype(ctypes.c_int)
+			users_in_batch = np.array(users_in_batch).astype(ctypes.c_size_t)
 		if items_in_batch is None:
 			items_in_batch = np.unique(ix_i_batch)
 		else:
-			items_in_batch = np.array(items_in_batch).astype(ctypes.c_int)
+			items_in_batch = np.array(items_in_batch).astype(ctypes.c_size_t)
 
 		if (self.Theta is None) or (self.Beta is None):
 			self._cast_before_fit()
@@ -850,7 +850,7 @@ class HPF:
 					self.Lambda_shp, self.Lambda_rte,
 					self.k_rte, self.t_rte,
 					add_k_rte, add_t_rte, self.a, self.c,
-					k_shp, t_shp, cython_loops.cast_int(self.k),
+					k_shp, t_shp, cython_loops.cast_size_t(self.k),
 					users_in_batch, items_in_batch,
 					cython_loops.cast_int(self.allow_inconsistent_math),
 					cython_loops.cast_float(step_size), cython_loops.cast_float(multiplier_batch),
@@ -970,7 +970,7 @@ class HPF:
 								 Theta, self.Beta,
 								 self.Lambda_shp,
 								 self.Lambda_rte,
-								 cython_loops.cast_int(counts_df.shape[0]), cython_loops.cast_int(self.k),
+								 cython_loops.cast_size_t(counts_df.shape[0]), cython_loops.cast_size_t(self.k),
 								 cython_loops.cast_int(int(maxiter)), cython_loops.cast_int(ncores),
 								 cython_loops.cast_int(int(random_seed)), cython_loops.cast_float(stop_thr),
 								 cython_loops.cast_int(bool(return_all))
@@ -1059,7 +1059,7 @@ class HPF:
 		
 		if update_all_params:
 			counts_df['UserId'] = user_id
-			counts_df['UserId'] = counts_df.UserId.astype(ctypes.c_int)
+			counts_df['UserId'] = counts_df.UserId.astype(ctypes.c_size_t)
 			self.partial_fit(counts_df, new_users=(not update_existing))
 			Theta_prev = self.Theta[-1].copy()
 			for i in range(maxiter - 1):
@@ -1080,7 +1080,7 @@ class HPF:
 								 Theta, self.Beta,
 								 self.Lambda_shp,
 								 self.Lambda_rte,
-								 cython_loops.cast_int(counts_df.shape[0]), cython_loops.cast_int(self.k),
+								 cython_loops.cast_size_t(counts_df.shape[0]), cython_loops.cast_size_t(self.k),
 								 cython_loops.cast_int(maxiter), cython_loops.cast_int(ncores),
 								 cython_loops.cast_int(random_seed), cython_loops.cast_int(stop_thr),
 								 cython_loops.cast_int(self.keep_all_objs)

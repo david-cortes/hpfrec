@@ -28,7 +28,7 @@ setup(
    'scipy',
    'cython'
 ],
-  version = '0.2.2.5',
+  version = '0.2.2.6',
   description = 'Hierarchical Poisson matrix factorization for recommender systems',
   author = 'David Cortes',
   author_email = 'david.cortes.rivera@gmail.com',
