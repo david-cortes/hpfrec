@@ -75,7 +75,7 @@ def assess_convergence(int i, check_every, stop_crit, last_crit, stop_thr,
 			llk_plus_rmse(&Theta[0,0], &Beta[0,0], &Yval[0],
 						  &ix_u_val[0], &ix_i_val[0], nYv, k,
 						  &errs[0], nthreads, verbose, full_llk)
-			errs[0] -= Theta[ix_u_val].sum(axis=0).dot(Beta[ix_i_val].sum(axis=0))
+			errs[0] -= sum_prediction(&Theta[0,0], &Beta[0,0], &ix_u_val[0], &ix_i_val[0], nYv, <int> k, nthreads)
 			errs[1] = np.sqrt(errs[1]/nYv)
 		else:
 			llk_plus_rmse(&Theta[0,0], &Beta[0,0], &Y[0],
@@ -116,6 +116,7 @@ def eval_after_term(stop_crit, int verbose, int nthreads, int full_llk, size_t k
 							  &errs[0], nthreads, verbose, full_llk)
 				errs[0] -= Theta.sum(axis=0).dot(Beta.sum(axis=0))
 				errs[1] = np.sqrt(errs[1]/nY)
+			return errs[0]
 
 ### Random initializer for parameters
 #####################################
@@ -247,12 +248,15 @@ def fit_hpf(float a, float a_prime, float b_prime,
 							  &phi[0,0], &Y[0], k, sum_exp_trick,
 							  &ix_u[0], &ix_i[0], nY, nthreads)
 
-			Gamma_rte = k_shp/k_rte + Beta.sum(axis=0, keepdims=True)
+			if par_sh:
+				pass
+			else:
+				Gamma_rte = k_shp/k_rte + Beta.sum(axis=0, keepdims=True)
 
 			### Comment: don't put this part before the update for Gamma rate
 			Gamma_shp[:,:] = a
 			Lambda_shp[:,:] = c
-			if par_sh>0:
+			if par_sh:
 				## this produces inconsistent results across runs, so there's a non-parallel version too
 				update_G_n_L_sh_par(&Gamma_shp[0,0], &Lambda_shp[0,0],
 								  &phi[0,0], k,
@@ -265,7 +269,7 @@ def fit_hpf(float a, float a_prime, float b_prime,
 			Theta[:,:] = Gamma_shp/Gamma_rte
 
 			### Comment: these operations are pretty fast in numpy, so I preferred not to parallelize them.
-			### Moreover, compiler optimizations do a very poor job at parallelizing sums by columns.
+			### Moreover, compiler optimizations from .pyx files do a very poor job at parallelizing sums by columns.
 			Lambda_rte = t_shp/t_rte + Theta.sum(axis=0, keepdims=True)
 			Beta[:,:] = Lambda_shp/Lambda_rte
 
@@ -408,11 +412,12 @@ def fit_hpf(float a, float a_prime, float b_prime,
 					break
 
 	## last metrics once it finishes optimizing
-	eval_after_term(stop_crit, verbose, nthreads, full_llk, k, nY, nYv, has_valset,
-					Theta, Beta, errs,
-					Y, ix_u, ix_i,
-					Yval, ix_u_val, ix_i_val
-					)
+	last_llk = eval_after_term(
+		stop_crit, verbose, nthreads, full_llk, k, nY, nYv, has_valset,
+		Theta, Beta, errs,
+		Y, ix_u, ix_i,
+		Yval, ix_u_val, ix_i_val
+		)
 
 	cdef double end_tm = (time.time()-st_time)/60
 	if verbose:
@@ -428,7 +433,7 @@ def fit_hpf(float a, float a_prime, float b_prime,
 		temp = (Gamma_shp, Gamma_rte, Lambda_shp, Lambda_rte, k_rte, t_rte)
 	else:
 		temp = None
-	return i, temp
+	return i, temp, last_llk
 
 
 ### Functions for updates without a complete refit
@@ -543,8 +548,18 @@ def calc_llk(np.ndarray[float, ndim=1] Y, np.ndarray[size_t, ndim=1] ix_u, np.nd
 			 &Y[0], &ix_u[0], &ix_i[0],
 			 <size_t> Y.shape[0], k,
 			 &o[0], nthreads, 0, full_llk)
-	o[0] -= Theta[ix_u].sum(axis=0).dot(Beta[ix_i].sum(axis=0))
+	cdef int kint = k
+	o[0] -= sum_prediction(&Theta[0,0], &Beta[0,0], &ix_u[0], &ix_i[0], <size_t> Y.shape[0], kint, nthreads)
 	return o[0]
+
+### External prediction function
+################################
+def predict_arr(np.ndarray[float, ndim=2] M1, np.ndarray[float, ndim=2] M2, np.ndarray[size_t, ndim=1] ix_u, np.ndarray[size_t, ndim=1] ix_i, int nthreads):
+	cdef size_t n = ix_u.shape[0]
+	cdef int k = M1.shape[1]
+	cdef np.ndarray[float, ndim=1] out = np.zeros(n, dtype='float32')
+	predict_multiple(&out[0], &M1[0,0], &M2[0,0], &ix_u[0], &ix_i[0], n, k, nthreads)
+	return out
 
 ### Internal C functions
 ########################
@@ -789,6 +804,32 @@ cdef void get_i_batch_pass2(size_t* st_ix_u, size_t* st_ix_out, size_t* out, siz
 		st_out = st_ix_out[u]
 		for i in range(n_uid):
 			out[st_out + i] = ix_i[st_ix_u[uid] + i]
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.nonecheck(False)
+@cython.cdivision(True)
+cdef void predict_multiple(float* out, float* M1, float* M2, size_t* ix_u, size_t* ix_i, size_t n, int k, int nthreads) nogil:
+	
+	cdef int one = 1
+	cdef size_t kszt = k
+	cdef size_t i
+	for i in prange(n, schedule='static', num_threads=nthreads):
+		out[i] = sdot(&k, &M1[ix_u[i] * kszt], &one, &M2[ix_i[i] * kszt], &one)
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.nonecheck(False)
+@cython.cdivision(True)
+cdef long double sum_prediction(float* M1, float* M2, size_t* ix_u, size_t* ix_i, size_t n, int k, int nthreads) nogil:
+	
+	cdef long double out = 0
+	cdef int one = 1
+	cdef size_t kszt = k
+	cdef size_t i
+	for i in prange(n, schedule='static', num_threads=nthreads):
+		out += sdot(&k, &M1[ix_u[i] * kszt], &one, &M2[ix_i[i] * kszt], &one)
+	return out
 
 
 ### Printing output

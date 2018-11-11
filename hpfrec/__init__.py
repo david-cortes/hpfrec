@@ -186,6 +186,8 @@ class HPF:
 		Whether the model has been fit to some data.
 	niter : int
 		Number of iterations for which the fitting procedure was run.
+	train_llk : int
+		Final training likelihood calculated when the model was fit (only when passing 'verbose=True').
 
 	References
 	----------
@@ -337,6 +339,7 @@ class HPF:
 		self.item_dict_ = None
 		self.is_fitted = False
 		self.niter = None
+		self.train_llk = None
 	
 	def fit(self, counts_df, val_set=None):
 		"""
@@ -364,10 +367,11 @@ class HPF:
 
 		Parameters
 		----------
-		counts_df : pandas data frame (nobs, 3)
+		counts_df : pandas data frame (nobs, 3) or coo_matrix
 			Input data with one row per non-zero observation, consisting of triplets ('UserId', 'ItemId', 'Count').
 			Must containin columns 'UserId', 'ItemId', and 'Count'.
 			Combinations of users and items not present are implicitly assumed to be zero by the model.
+			Can also pass a sparse coo_matrix, in which case 'reindex' will be forced to 'False'.
 		val_set : pandas data frame (nobs, 3)
 			Validation set on which to monitor log-likelihood. Same format as counts_df.
 
@@ -412,6 +416,8 @@ class HPF:
 		return self
 	
 	def _process_data(self, input_df):
+		calc_n = True
+
 		if isinstance(input_df, np.ndarray):
 			assert len(input_df.shape) > 1
 			assert input_df.shape[1] >= 3
@@ -424,8 +430,18 @@ class HPF:
 			assert 'ItemId' in input_df.columns.values
 			assert 'Count' in input_df.columns.values
 			self.input_df = input_df[['UserId', 'ItemId', 'Count']]
+		elif input_df.__class__.__name__ == 'coo_matrix':
+			self.nusers = input_df.shape[0]
+			self.nitems = input_df.shape[1]
+			input_df = pd.DataFrame({
+				'UserId' : input_df.row,
+				'ItemId' : input_df.col,
+				'Count' : input_df.data
+				})
+			self.reindex = False
+			calc_n = False
 		else:
-			raise ValueError("'input_df' must be a pandas data frame or a numpy array")
+			raise ValueError("'input_df' must be a pandas data frame, numpy array, or scipy sparse coo_matrix.")
 
 		if self.stop_crit in ['maxiter', 'diff-norm']:
 			thr = 0
@@ -453,8 +469,9 @@ class HPF:
 				pd.Series(self.user_mapping_).to_csv(os.path.join(self.save_folder, 'users.csv'), index=False)
 				pd.Series(self.item_mapping_).to_csv(os.path.join(self.save_folder, 'items.csv'), index=False)
 		else:
-			self.nusers = self.input_df.UserId.max() + 1
-			self.nitems = self.input_df.ItemId.max() + 1
+			if calc_n:
+				self.nusers = self.input_df.UserId.max() + 1
+				self.nitems = self.input_df.ItemId.max() + 1
 
 		if self.save_folder is not None:
 			with open(os.path.join(self.save_folder, "hyperparameters.txt"), "w") as pf:
@@ -470,9 +487,12 @@ class HPF:
 				else:
 					pf.write("random seed: None\n")
 		
-		self.input_df['Count'] = self.input_df.Count.astype('float32')
-		self.input_df['UserId'] = self.input_df.UserId.astype(ctypes.c_size_t)
-		self.input_df['ItemId'] = self.input_df.ItemId.astype(ctypes.c_size_t)
+		if self.input_df['Count'].dtype != ctypes.c_float:
+			self.input_df['Count'] = self.input_df.Count.astype('float32')
+		if self.input_df['UserId'].dtype != ctypes.c_size_t:
+			self.input_df['UserId'] = self.input_df.UserId.astype(ctypes.c_size_t)
+		if self.input_df['ItemId'].dtype != ctypes.c_size_t:
+			self.input_df['ItemId'] = self.input_df.ItemId.astype(ctypes.c_size_t)
 
 		if self.users_per_batch != 0:
 			if self.nusers < self.users_per_batch:
@@ -496,8 +516,16 @@ class HPF:
 			assert 'ItemId' in val_set.columns.values
 			assert 'Count' in val_set.columns.values
 			self.val_set = val_set[['UserId', 'ItemId', 'Count']]
+		elif val_set.__class__.__name__ == 'coo_matrix':
+			assert val_set.shape[0] <= self.nusers
+			assert val_set.shape[1] <= self.nitems
+			val_set = pd.DataFrame({
+				'UserId' : val_set.row,
+				'ItemId' : val_set.col,
+				'Count' : val_set.data
+				})
 		else:
-			raise ValueError("'val_set' must be a pandas data frame or a numpy array")
+			raise ValueError("'val_set' must be a pandas data frame, numpy array, or sparse coo_matrix.")
 			
 		if self.stop_crit == 'val-llk':
 			thr = 0
@@ -526,9 +554,13 @@ class HPF:
 									 "in common with the training set.")
 			else:
 				self.val_set.reset_index(drop=True, inplace=True)
-		self.val_set['Count'] = self.val_set.Count.astype('float32')
-		self.val_set['UserId'] = self.val_set.UserId.astype(ctypes.c_size_t)
-		self.val_set['ItemId'] = self.val_set.ItemId.astype(ctypes.c_size_t)
+
+		if self.val_set['Count'].dtype != ctypes.c_float:
+			self.val_set['Count'] = self.val_set.Count.astype('float32')
+		if self.val_set['UserId'].dtype != ctypes.c_size_t:
+			self.val_set['UserId'] = self.val_set.UserId.astype(ctypes.c_size_t)
+		if self.val_set['ItemId'].dtype != ctypes.c_size_t:
+			self.val_set['ItemId'] = self.val_set.ItemId.astype(ctypes.c_size_t)
 		return None
 			
 	def _store_metadata(self, for_partial_fit=False):
@@ -585,7 +617,7 @@ class HPF:
 		if self.users_per_batch == 0:
 			self._st_ix_user = np.arange(1).astype(ctypes.c_size_t)
 
-		self.niter, temp = cython_loops.fit_hpf(
+		self.niter, temp, self.train_llk = cython_loops.fit_hpf(
 			self.a, self.a_prime, self.b_prime,
 			self.c, self.c_prime, self.d_prime,
 			self.input_df.Count.values, self.input_df.UserId.values, self.input_df.ItemId.values,
@@ -1214,12 +1246,16 @@ class HPF:
 		else:
 			nan_entries = (user == -1) | (item == -1)
 			if nan_entries.sum() == 0:
-				return (self.Theta[user] * self.Beta[item]).sum(axis=1)
+				if user.dtype != ctypes.c_size_t:
+					user = user.astype(ctypes.c_size_t)
+				if item.dtype != ctypes.c_size_t:
+					item = item.astype(ctypes.c_size_t)
+				return cython_loops.predict_arr(self.Theta, self.Beta, user, item, self.ncores)
 			else:
 				non_na_user = user[~nan_entries]
 				non_na_item = item[~nan_entries]
 				out = np.empty(user.shape[0], dtype=self.Theta.dtype)
-				out[~nan_entries] = (self.Theta[non_na_user] * self.Beta[non_na_item]).sum(axis=1)
+				out[~nan_entries] = cython_loops.predict_arr(self.Theta, self.Beta, non_na_user.astype(ctypes.c_size_t), non_na_item.astype(ctypes.c_size_t), self.ncores)
 				out[nan_entries] = np.nan
 				return out
 		
