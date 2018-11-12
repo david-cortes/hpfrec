@@ -248,10 +248,7 @@ def fit_hpf(float a, float a_prime, float b_prime,
 							  &phi[0,0], &Y[0], k, sum_exp_trick,
 							  &ix_u[0], &ix_i[0], nY, nthreads)
 
-			if par_sh:
-				pass
-			else:
-				Gamma_rte = k_shp/k_rte + Beta.sum(axis=0, keepdims=True)
+			Gamma_rte = k_shp/k_rte + Beta.sum(axis=0, keepdims=True)
 
 			### Comment: don't put this part before the update for Gamma rate
 			Gamma_shp[:,:] = a
