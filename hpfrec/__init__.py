@@ -398,7 +398,7 @@ class HPF:
 			self.val_set = None
 			
 		self._cast_before_fit()
-		self.niter = self._fit()
+		self._fit()
 		
 		## after terminating optimization
 		if self.keep_data:
