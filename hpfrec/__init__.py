@@ -489,10 +489,10 @@ class HPF:
 		
 		if self.input_df['Count'].dtype != ctypes.c_float:
 			self.input_df['Count'] = self.input_df.Count.astype('float32')
-		if self.input_df['UserId'].dtype != ctypes.c_size_t:
-			self.input_df['UserId'] = self.input_df.UserId.astype(ctypes.c_size_t)
-		if self.input_df['ItemId'].dtype != ctypes.c_size_t:
-			self.input_df['ItemId'] = self.input_df.ItemId.astype(ctypes.c_size_t)
+		if self.input_df['UserId'].dtype != cython_loops.obj_ind_type:
+			self.input_df['UserId'] = self.input_df.UserId.astype(cython_loops.obj_ind_type)
+		if self.input_df['ItemId'].dtype != cython_loops.obj_ind_type:
+			self.input_df['ItemId'] = self.input_df.ItemId.astype(cython_loops.obj_ind_type)
 
 		if self.users_per_batch != 0:
 			if self.nusers < self.users_per_batch:
@@ -557,10 +557,10 @@ class HPF:
 
 		if self.val_set['Count'].dtype != ctypes.c_float:
 			self.val_set['Count'] = self.val_set.Count.astype('float32')
-		if self.val_set['UserId'].dtype != ctypes.c_size_t:
-			self.val_set['UserId'] = self.val_set.UserId.astype(ctypes.c_size_t)
-		if self.val_set['ItemId'].dtype != ctypes.c_size_t:
-			self.val_set['ItemId'] = self.val_set.ItemId.astype(ctypes.c_size_t)
+		if self.val_set['UserId'].dtype != cython_loops.obj_ind_type:
+			self.val_set['UserId'] = self.val_set.UserId.astype(cython_loops.obj_ind_type)
+		if self.val_set['ItemId'].dtype != cython_loops.obj_ind_type:
+			self.val_set['ItemId'] = self.val_set.ItemId.astype(cython_loops.obj_ind_type)
 		return None
 			
 	def _store_metadata(self, for_partial_fit=False):
@@ -570,7 +570,7 @@ class HPF:
 		X = csr_matrix(X)
 		self._n_seen_by_user = X.indptr[1:] - X.indptr[:-1]
 		if for_partial_fit:
-			self._st_ix_user = X.indptr.astype(ctypes.c_size_t)
+			self._st_ix_user = X.indptr.astype(cython_loops.obj_ind_type)
 			self.input_df.sort_values('UserId', inplace=True)
 		else:
 			self._st_ix_user = X.indptr[:-1]
@@ -581,9 +581,9 @@ class HPF:
 		## setting all parameters and data to the right type
 		self.Theta = np.empty((self.nusers, self.k), dtype='float32')
 		self.Beta = np.empty((self.nitems, self.k), dtype='float32')
-		self.k = cython_loops.cast_size_t(self.k)
-		self.nusers = cython_loops.cast_size_t(self.nusers)
-		self.nitems = cython_loops.cast_size_t(self.nitems)
+		self.k = cython_loops.cast_ind_type(self.k)
+		self.nusers = cython_loops.cast_ind_type(self.nusers)
+		self.nitems = cython_loops.cast_ind_type(self.nitems)
 		self.ncores = cython_loops.cast_int(self.ncores)
 		self.maxiter = cython_loops.cast_int(self.maxiter)
 		self.verbose = cython_loops.cast_int(self.verbose)
@@ -608,14 +608,14 @@ class HPF:
 		if self.val_set is None:
 			use_valset = cython_loops.cast_int(0)
 			self.val_set = pd.DataFrame(np.empty((0,3)), columns=['UserId','ItemId','Count'])
-			self.val_set['UserId'] = self.val_set.UserId.astype(ctypes.c_size_t)
-			self.val_set['ItemId'] = self.val_set.ItemId.astype(ctypes.c_size_t)
+			self.val_set['UserId'] = self.val_set.UserId.astype(cython_loops.obj_ind_type)
+			self.val_set['ItemId'] = self.val_set.ItemId.astype(cython_loops.obj_ind_type)
 			self.val_set['Count'] = self.val_set.Count.values.astype('float32')
 		else:
 			use_valset = cython_loops.cast_int(1)
 
 		if self.users_per_batch == 0:
-			self._st_ix_user = np.arange(1).astype(ctypes.c_size_t)
+			self._st_ix_user = np.arange(1).astype(cython_loops.obj_ind_type)
 
 		self.niter, temp, self.train_llk = cython_loops.fit_hpf(
 			self.a, self.a_prime, self.b_prime,
@@ -625,7 +625,7 @@ class HPF:
 			self.maxiter, self.stop_crit, self.check_every, self.stop_thr,
 			self.users_per_batch, self.items_per_batch,
 			self.step_size, cython_loops.cast_int(self.sum_exp_trick),
-			self._st_ix_user.astype(ctypes.c_size_t),
+			self._st_ix_user.astype(cython_loops.obj_ind_type),
 			self.save_folder, self.random_seed, self.verbose,
 			self.ncores, cython_loops.cast_int(self.allow_inconsistent_math),
 			use_valset,
@@ -673,7 +673,7 @@ class HPF:
 				if (counts_df.ItemId == -1).sum() > 0:
 					raise ValueError("Can only make calculations for items that were in the training set.")
 
-		counts_df['ItemId'] = counts_df.ItemId.values.astype(ctypes.c_size_t)
+		counts_df['ItemId'] = counts_df.ItemId.values.astype(cython_loops.obj_ind_type)
 		counts_df['Count'] = counts_df.ItemId.values.astype(ctypes.c_float)
 		return counts_df
 
@@ -827,17 +827,17 @@ class HPF:
 		assert counts_df.shape[0] > 0
 
 		Y_batch = counts_df.Count.values.astype('float32')
-		ix_u_batch = counts_df.UserId.values.astype(ctypes.c_size_t)
-		ix_i_batch = counts_df.ItemId.values.astype(ctypes.c_size_t)
+		ix_u_batch = counts_df.UserId.values.astype(cython_loops.obj_ind_type)
+		ix_i_batch = counts_df.ItemId.values.astype(cython_loops.obj_ind_type)
 
 		if users_in_batch is None:
 			users_in_batch = np.unique(ix_u_batch)
 		else:
-			users_in_batch = np.array(users_in_batch).astype(ctypes.c_size_t)
+			users_in_batch = np.array(users_in_batch).astype(cython_loops.obj_ind_type)
 		if items_in_batch is None:
 			items_in_batch = np.unique(ix_i_batch)
 		else:
-			items_in_batch = np.array(items_in_batch).astype(ctypes.c_size_t)
+			items_in_batch = np.array(items_in_batch).astype(cython_loops.obj_ind_type)
 
 		if (self.Theta is None) or (self.Beta is None):
 			self._cast_before_fit()
@@ -882,7 +882,7 @@ class HPF:
 					self.Lambda_shp, self.Lambda_rte,
 					self.k_rte, self.t_rte,
 					add_k_rte, add_t_rte, self.a, self.c,
-					k_shp, t_shp, cython_loops.cast_size_t(self.k),
+					k_shp, t_shp, cython_loops.cast_ind_type(self.k),
 					users_in_batch, items_in_batch,
 					cython_loops.cast_int(self.allow_inconsistent_math),
 					cython_loops.cast_float(step_size), cython_loops.cast_float(multiplier_batch),
@@ -1002,7 +1002,7 @@ class HPF:
 								 Theta, self.Beta,
 								 self.Lambda_shp,
 								 self.Lambda_rte,
-								 cython_loops.cast_size_t(counts_df.shape[0]), cython_loops.cast_size_t(self.k),
+								 cython_loops.cast_ind_type(counts_df.shape[0]), cython_loops.cast_ind_type(self.k),
 								 cython_loops.cast_int(int(maxiter)), cython_loops.cast_int(ncores),
 								 cython_loops.cast_int(int(random_seed)), cython_loops.cast_float(stop_thr),
 								 cython_loops.cast_int(bool(return_all))
@@ -1091,7 +1091,7 @@ class HPF:
 		
 		if update_all_params:
 			counts_df['UserId'] = user_id
-			counts_df['UserId'] = counts_df.UserId.astype(ctypes.c_size_t)
+			counts_df['UserId'] = counts_df.UserId.astype(cython_loops.obj_ind_type)
 			self.partial_fit(counts_df, new_users=(not update_existing))
 			Theta_prev = self.Theta[-1].copy()
 			for i in range(maxiter - 1):
@@ -1112,7 +1112,7 @@ class HPF:
 								 Theta, self.Beta,
 								 self.Lambda_shp,
 								 self.Lambda_rte,
-								 cython_loops.cast_size_t(counts_df.shape[0]), cython_loops.cast_size_t(self.k),
+								 cython_loops.cast_ind_type(counts_df.shape[0]), cython_loops.cast_ind_type(self.k),
 								 cython_loops.cast_int(maxiter), cython_loops.cast_int(ncores),
 								 cython_loops.cast_int(random_seed), cython_loops.cast_int(stop_thr),
 								 cython_loops.cast_int(self.keep_all_objs)
@@ -1246,16 +1246,16 @@ class HPF:
 		else:
 			nan_entries = (user == -1) | (item == -1)
 			if nan_entries.sum() == 0:
-				if user.dtype != ctypes.c_size_t:
-					user = user.astype(ctypes.c_size_t)
-				if item.dtype != ctypes.c_size_t:
-					item = item.astype(ctypes.c_size_t)
+				if user.dtype != cython_loops.obj_ind_type:
+					user = user.astype(cython_loops.obj_ind_type)
+				if item.dtype != cython_loops.obj_ind_type:
+					item = item.astype(cython_loops.obj_ind_type)
 				return cython_loops.predict_arr(self.Theta, self.Beta, user, item, self.ncores)
 			else:
 				non_na_user = user[~nan_entries]
 				non_na_item = item[~nan_entries]
 				out = np.empty(user.shape[0], dtype=self.Theta.dtype)
-				out[~nan_entries] = cython_loops.predict_arr(self.Theta, self.Beta, non_na_user.astype(ctypes.c_size_t), non_na_item.astype(ctypes.c_size_t), self.ncores)
+				out[~nan_entries] = cython_loops.predict_arr(self.Theta, self.Beta, non_na_user.astype(cython_loops.obj_ind_type), non_na_item.astype(cython_loops.obj_ind_type), self.ncores)
 				out[nan_entries] = np.nan
 				return out
 		
