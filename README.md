@@ -147,20 +147,18 @@ Documentation is available at readthedocs: [http://hpfrec.readthedocs.io](http:/
 
 It is also internally documented through docstrings (e.g. you can try `help(hpfrec.HPF))`, `help(hpfrec.HPF.fit)`, etc.
 
-## Saving model with pickle
+## Serializing (pickling) the model
 
-Using pickle to save an `HPF` object might fail due to problems with lambda functions. The following solves it:
+Don't use `pickle` to save an `HPF` object, as it will fail due to problems with lambda functions. Rather, use `dill` instead, which has the same syntax as pickle:
 
 ```python
-import pickle
+import dill
 from hpfrec import HPF
 
 h = HPF()
-h.step_size = None
-pickle.dump(h, open("HPF_obj.p", "wb"))
+dill.dump(h, open("HPF_obj.dill", "wb"))
+h = dill.load(open("HPF_obj.dill", "rb"))
 ```
-
-(Be aware though that afterwards it won't be possible to use `partial_fit` or `add_user` with updates to item parameters.)
 
 ## Speeding up optimization procedure
 
