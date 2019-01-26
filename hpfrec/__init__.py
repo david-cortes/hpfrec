@@ -249,9 +249,9 @@ class HPF:
 			assert maxiter>0
 			assert isinstance(maxiter, int)
 		else:
-			maxiter = 10**10
-			if stop_crit!='maxiter':
+			if stop_crit == 'maxiter':
 				raise ValueError("If 'stop_crit' is set to 'maxiter', must provide a maximum number of iterations.")
+			maxiter = 10**10
 			
 		if check_every is not None:
 			assert isinstance(check_every, int)
@@ -421,15 +421,16 @@ class HPF:
 		if isinstance(input_df, np.ndarray):
 			assert len(input_df.shape) > 1
 			assert input_df.shape[1] >= 3
-			input_df = input_df.values[:,:3]
+			input_df = pd.DataFrame(input_df[:, :3])
 			input_df.columns = ['UserId', 'ItemId', "Count"]
 			
-		if input_df.__class__.__name__ == 'DataFrame':
+		elif input_df.__class__.__name__ == 'DataFrame':
 			assert input_df.shape[0] > 0
 			assert 'UserId' in input_df.columns.values
 			assert 'ItemId' in input_df.columns.values
 			assert 'Count' in input_df.columns.values
 			self.input_df = input_df[['UserId', 'ItemId', 'Count']]
+			
 		elif input_df.__class__.__name__ == 'coo_matrix':
 			self.nusers = input_df.shape[0]
 			self.nitems = input_df.shape[1]
@@ -488,7 +489,7 @@ class HPF:
 					pf.write("random seed: None\n")
 		
 		if self.input_df['Count'].dtype != ctypes.c_float:
-			self.input_df['Count'] = self.input_df.Count.astype('float32')
+			self.input_df['Count'] = self.input_df.Count.astype(ctypes.c_float)
 		if self.input_df['UserId'].dtype != cython_loops.obj_ind_type:
 			self.input_df['UserId'] = self.input_df.UserId.astype(cython_loops.obj_ind_type)
 		if self.input_df['ItemId'].dtype != cython_loops.obj_ind_type:
@@ -507,15 +508,16 @@ class HPF:
 		if isinstance(val_set, np.ndarray):
 			assert len(val_set.shape) > 1
 			assert val_set.shape[1] >= 3
-			val_set = val_set.values[:,:3]
+			val_set = pd.DataFrame(val_set[:, :3])
 			val_set.columns = ['UserId', 'ItemId', "Count"]
 			
-		if val_set.__class__.__name__ == 'DataFrame':
+		elif val_set.__class__.__name__ == 'DataFrame':
 			assert val_set.shape[0] > 0
 			assert 'UserId' in val_set.columns.values
 			assert 'ItemId' in val_set.columns.values
 			assert 'Count' in val_set.columns.values
 			self.val_set = val_set[['UserId', 'ItemId', 'Count']]
+
 		elif val_set.__class__.__name__ == 'coo_matrix':
 			assert val_set.shape[0] <= self.nusers
 			assert val_set.shape[1] <= self.nitems
@@ -556,7 +558,7 @@ class HPF:
 				self.val_set.reset_index(drop=True, inplace=True)
 
 		if self.val_set['Count'].dtype != ctypes.c_float:
-			self.val_set['Count'] = self.val_set.Count.astype('float32')
+			self.val_set['Count'] = self.val_set.Count.astype(ctypes.c_float)
 		if self.val_set['UserId'].dtype != cython_loops.obj_ind_type:
 			self.val_set['UserId'] = self.val_set.UserId.astype(cython_loops.obj_ind_type)
 		if self.val_set['ItemId'].dtype != cython_loops.obj_ind_type:
@@ -579,8 +581,8 @@ class HPF:
 
 	def _cast_before_fit(self):
 		## setting all parameters and data to the right type
-		self.Theta = np.empty((self.nusers, self.k), dtype='float32')
-		self.Beta = np.empty((self.nitems, self.k), dtype='float32')
+		self.Theta = np.empty((self.nusers, self.k), dtype=ctypes.c_float)
+		self.Beta = np.empty((self.nitems, self.k), dtype=ctypes.c_float)
 		self.k = cython_loops.cast_ind_type(self.k)
 		self.nusers = cython_loops.cast_ind_type(self.nusers)
 		self.nitems = cython_loops.cast_ind_type(self.nitems)
@@ -610,7 +612,7 @@ class HPF:
 			self.val_set = pd.DataFrame(np.empty((0,3)), columns=['UserId','ItemId','Count'])
 			self.val_set['UserId'] = self.val_set.UserId.astype(cython_loops.obj_ind_type)
 			self.val_set['ItemId'] = self.val_set.ItemId.astype(cython_loops.obj_ind_type)
-			self.val_set['Count'] = self.val_set.Count.values.astype('float32')
+			self.val_set['Count'] = self.val_set.Count.values.astype(ctypes.c_float)
 		else:
 			use_valset = cython_loops.cast_int(1)
 
