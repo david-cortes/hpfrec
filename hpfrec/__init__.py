@@ -233,10 +233,10 @@ class HPF:
 		assert d_prime>0
 		assert k>0
 		
-		if ncores == -1:
+		if ncores is None:
+			ncores = 1 
+		if ncores < 1:
 			ncores = multiprocessing.cpu_count()
-			if ncores is None:
-				ncores = 1 
 		assert ncores>0
 		assert isinstance(ncores, int)
 
@@ -828,7 +828,7 @@ class HPF:
 		assert 'Count' in counts_df.columns.values
 		assert counts_df.shape[0] > 0
 
-		Y_batch = counts_df.Count.values.astype('float32')
+		Y_batch = counts_df.Count.values.astype(ctypes.c_float)
 		ix_u_batch = counts_df.UserId.values.astype(cython_loops.obj_ind_type)
 		ix_i_batch = counts_df.ItemId.values.astype(cython_loops.obj_ind_type)
 
@@ -899,27 +899,27 @@ class HPF:
 		if seed is not None:
 			np.random.seed(seed)
 
-		new_Theta = np.random.gamma(self.a, 1/self.b_prime, size=(n, self.k)).astype('float32')
+		new_Theta = np.random.gamma(self.a, 1/self.b_prime, size=(n, self.k)).astype(ctypes.c_float)
 		self.Theta = np.r_[self.Theta, new_Theta]
 		self.k_rte = np.r_[self.k_rte, b_prime + new_Theta.sum(axis=1, keepdims=True)]
-		new_Gamma_rte = np.random.gamma(self.a_prime, self.b_prime/self.a_prime, size=(n, 1)).astype('float32') \
+		new_Gamma_rte = np.random.gamma(self.a_prime, self.b_prime/self.a_prime, size=(n, 1)).astype(ctypes.c_float) \
 							+ self.Beta.sum(axis=0, keepdims=True)
 		self.Gamma_rte = np.r_[self.Gamma_rte, new_Gamma_rte]
 		self.Gamma_shp = np.r_[self.Gamma_shp, new_Gamma_rte * new_Theta * \
-								np.random.uniform(low=.85, high=1.15, size=(n, self.k)).astype('float32')]
+								np.random.uniform(low=.85, high=1.15, size=(n, self.k)).astype(ctypes.c_float)]
 
 	def _initialize_extra_items(self, n, seed):
 		if seed is not None:
 			np.random.seed(seed)
 
-		new_Beta = np.random.gamma(self.c, 1/self.d_prime, size=(n, self.k)).astype('float32')
+		new_Beta = np.random.gamma(self.c, 1/self.d_prime, size=(n, self.k)).astype(ctypes.c_float)
 		self.Beta = np.r_[self.Beta, new_Beta]
 		self.t_rte = np.r_[self.t_rte, self.d_prime + new_Beta.sum(axis=1, keepdims=True)]
-		new_Lambda_rte = np.random.gamma(self.c_prime, self.d_prime/self.c_prime, size=(n, 1)).astype('float32') \
+		new_Lambda_rte = np.random.gamma(self.c_prime, self.d_prime/self.c_prime, size=(n, 1)).astype(ctypes.c_float) \
 							+ self.Theta.sum(axis=0, keepdims=True)
 		self.Lambda_rte = np.r_[self.Lambda_rte, new_Lambda_rte]
 		self.Lambda_shp = np.r_[self.Lambda_shp, new_Lambda_rte * new_Beta * \
-									 np.random.uniform(low=.85, high=1.15, size=(n, self.k)).astype('float32')]
+									 np.random.uniform(low=.85, high=1.15, size=(n, self.k)).astype(ctypes.c_float)]
 
 	def _check_input_predict_factors(self, ncores, random_seed, stop_thr, maxiter):
 		if ncores == -1:
@@ -995,7 +995,7 @@ class HPF:
 		counts_df = self._process_data_single(counts_df)
 
 		## calculating the latent factors
-		Theta = np.empty(self.k, dtype='float32')
+		Theta = np.empty(self.k, dtype = ctypes.c_float)
 		temp = cython_loops.calc_user_factors(
 								 self.a, self.a_prime, self.b_prime,
 								 self.c, self.c_prime, self.d_prime,
@@ -1105,7 +1105,7 @@ class HPF:
 					Theta_prev = self.Theta[-1].copy()
 		else:
 			## calculating the latent factors
-			Theta = np.empty(self.k, dtype='float32')
+			Theta = np.empty(self.k, dtype = ctypes.c_float)
 			temp = cython_loops.calc_user_factors(
 								 self.a, self.a_prime, self.b_prime,
 								 self.c, self.c_prime, self.d_prime,

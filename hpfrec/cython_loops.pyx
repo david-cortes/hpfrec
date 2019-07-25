@@ -28,16 +28,13 @@ def cast_int(n):
 def cast_ind_type(n):
 	return <ind_type> n
 
-def cast_np_int(a):
-	return a.astype(int)
-
 ### Procedures reusable by package ctpfrec
 ##########################################
 def get_csc_data(ix_u, ix_i, Y, nU, nI):
 	from scipy.sparse import coo_matrix, csc_matrix
 	X = coo_matrix((Y, (ix_u, ix_i)), shape=(nU, nI))
 	X = csc_matrix(X)
-	return X.indptr.astype(obj_ind_type), X.indices.astype(obj_ind_type), X.data.astype('float32')
+	return X.indptr.astype(obj_ind_type), X.indices.astype(obj_ind_type), X.data.astype(ctypes.c_float)
 
 def get_unique_items_batch(np.ndarray[ind_type, ndim=1] users_this_batch,
 						   np.ndarray[ind_type, ndim=1] st_ix_u,
@@ -140,24 +137,24 @@ def initialize_parameters(Theta, Beta, random_seed,
 	
 	if random_seed > 0:
 		np.random.seed(random_seed)
-	Theta[:,:] = np.random.gamma(a, 1/b_prime, size=(nU, k)).astype('float32')
-	Beta[:,:] = np.random.gamma(c, 1/d_prime, size=(nI, k)).astype('float32')
+	Theta[:,:] = np.random.gamma(a, 1/b_prime, size=(nU, k)).astype(ctypes.c_float)
+	Beta[:, :] = np.random.gamma(c, 1/d_prime, size=(nI, k)).astype(ctypes.c_float)
 
 	### Comment: the code above seems to give worse likelihood in the first iterations, but better
 	### local optima in the end, compared to initializing them like this:
 		# cdef np.ndarray[double, ndim=2] ksi = np.random.gamma(a_prime, b_prime/a_prime, size=(nU,1))
-		# Theta[:,:] = np.random.gamma(a, 1/ksi, size=(nU, k)).astype('float32')
+		# Theta[:,:] = np.random.gamma(a, 1/ksi, size=(nU, k)).astype(ctypes.c_float)
 		# cdef np.ndarray[double, ndim=2] eta = np.random.gamma(c_prime, d_prime/c_prime, size=(nI,1))
-		# Beta[:,:] = np.random.gamma(c, 1/eta, size=(nI, k)).astype('float32')
+		# Beta[:,:] = np.random.gamma(c, 1/eta, size=(nI, k)).astype(ctypes.c_float)
 
 	k_rte = a_prime/b_prime + Theta.sum(axis=1, keepdims=True)
 	t_rte = c_prime/d_prime + Beta.sum(axis=1, keepdims=True)
 
-	Gamma_rte = np.random.gamma(a_prime, b_prime/a_prime, size=(nU, 1)).astype('float32') + Beta.sum(axis=0, keepdims=True)
-	Lambda_rte = np.random.gamma(c_prime, d_prime/c_prime, size=(nI, 1)).astype('float32') + Theta.sum(axis=0, keepdims=True)
+	Gamma_rte = np.random.gamma(a_prime, b_prime/a_prime, size=(nU, 1)).astype(ctypes.c_float) + Beta.sum(axis=0, keepdims=True)
+	Lambda_rte = np.random.gamma(c_prime, d_prime/c_prime, size=(nI, 1)).astype(ctypes.c_float) + Theta.sum(axis=0, keepdims=True)
 
-	Gamma_shp = Gamma_rte * Theta * np.random.uniform(low=.85, high=1.15, size=(nU, k)).astype('float32')
-	Lambda_shp = Lambda_rte * Beta * np.random.uniform(low=.85, high=1.15, size=(nI, k)).astype('float32')
+	Gamma_shp = Gamma_rte * Theta * np.random.uniform(low=.85, high=1.15, size=(nU, k)).astype(ctypes.c_float)
+	Lambda_shp = Lambda_rte * Beta * np.random.uniform(low=.85, high=1.15, size=(nI, k)).astype(ctypes.c_float)
 	np.nan_to_num(Gamma_shp, copy=False)
 	np.nan_to_num(Lambda_shp, copy=False)
 	np.nan_to_num(Gamma_rte, copy=False)
@@ -207,7 +204,7 @@ def fit_hpf(float a, float a_prime, float b_prime,
 	if ((users_per_batch == 0) and (items_per_batch == 0)) or alloc_full_phi:
 		if verbose>0:
 			print "Allocating Phi matrix..."
-		phi = np.empty((nY, k), dtype='float32')
+		phi = np.empty((nY, k), dtype = ctypes.c_float)
 
 	cdef np.ndarray[ind_type, ndim=1] users_numeration, items_numeration, users_this_batch, items_this_batch, st_ix_id_batch
 	cdef ind_type nUbatch, nIbatch
@@ -239,7 +236,7 @@ def fit_hpf(float a, float a_prime, float b_prime,
 	if stop_crit == 'diff-norm':
 		Theta_prev = Theta.copy()
 	else:
-		Theta_prev = np.empty((0,0), dtype='float32')
+		Theta_prev = np.empty((0,0), dtype = ctypes.c_float)
 
 	cdef int one = 1
 	if verbose>0:
@@ -310,7 +307,7 @@ def fit_hpf(float a, float a_prime, float b_prime,
 						items_this_batch = get_unique_items_batch(users_this_batch, st_ix_u, ix_i, nthreads, False)
 					else:
 						items_this_batch, st_ix_id_batch = get_unique_items_batch(users_this_batch, st_ix_u, ix_i, nthreads, True)
-						phi = np.empty((st_ix_id_batch[-1], k), dtype='float32')
+						phi = np.empty((st_ix_id_batch[-1], k), dtype = ctypes.c_float)
 
 					if alloc_full_phi:
 						update_phi_csr(&Gamma_shp[0,0], &Gamma_rte[0,0], &Lambda_shp[0,0], &Lambda_rte[0,0],
@@ -362,7 +359,7 @@ def fit_hpf(float a, float a_prime, float b_prime,
 						users_this_batch = get_unique_items_batch(items_this_batch, st_ix_i_copy, ix_u_copy, nthreads, False)
 					else:
 						users_this_batch, st_ix_id_batch = get_unique_items_batch(items_this_batch, st_ix_i_copy, ix_u_copy, nthreads, True)
-						phi = np.empty((st_ix_id_batch[-1], k), dtype='float32')
+						phi = np.empty((st_ix_id_batch[-1], k), dtype = ctypes.c_float)
 
 					if alloc_full_phi:
 						update_phi_csr(&Lambda_shp[0,0], &Lambda_rte[0,0], &Gamma_shp[0,0], &Gamma_rte[0,0],
@@ -457,7 +454,7 @@ def partial_fit(np.ndarray[float, ndim=1] Y_batch,
 				int nthreads, user_batch
 				):
 	cdef ind_type nYbatch = Y_batch.shape[0]
-	cdef np.ndarray[float, ndim=2] phi = np.empty((nYbatch, k), dtype='float32')
+	cdef np.ndarray[float, ndim=2] phi = np.empty((nYbatch, k), dtype = ctypes.c_float)
 	cdef float step_prev = 1 - step_size_batch
 	update_phi(&Gamma_shp[0,0], &Gamma_rte[0,0], &Lambda_shp[0,0], &Lambda_rte[0,0],
 				  &phi[0,0], &Y_batch[0], k, 1,
@@ -513,14 +510,14 @@ def calc_user_factors(float a, float a_prime, float b_prime,
 	cdef float t_shp = c_prime + k*c
 	if random_seed > 0:
 		np.random.seed(random_seed)
-	Theta[:] = np.random.gamma(a, 1/b_prime, size=k).astype('float32')
+	Theta[:] = np.random.gamma(a, 1/b_prime, size = k).astype(ctypes.c_float)
 	cdef float k_rte = b_prime + Theta.sum()
-	cdef np.ndarray[float, ndim=1] Gamma_rte = np.random.gamma(a_prime, b_prime/a_prime, size=1).astype('float32') + \
+	cdef np.ndarray[float, ndim=1] Gamma_rte = np.random.gamma(a_prime, b_prime/a_prime, size=1).astype(ctypes.c_float) + \
 											Beta.sum(axis=0)
-	cdef np.ndarray[float, ndim=1] Gamma_shp = Gamma_rte * Theta * np.random.uniform(low=.85, high=1.15, size=k).astype('float32')
+	cdef np.ndarray[float, ndim=1] Gamma_shp = Gamma_rte * Theta * np.random.uniform(low=.85, high=1.15, size=k).astype(ctypes.c_float)
 	np.nan_to_num(Gamma_shp, copy=False)
 	np.nan_to_num(Gamma_rte, copy=False)
-	cdef np.ndarray[float, ndim=2] phi = np.empty((nY, k), dtype='float32')
+	cdef np.ndarray[float, ndim=2] phi = np.empty((nY, k), dtype = ctypes.c_float)
 	cdef float add_k_rte = a_prime/b_prime
 	cdef np.ndarray[float, ndim=1] Theta_prev = Theta.copy()
 	cdef np.ndarray[ind_type, ndim=1] u_repeated = np.zeros(nY, dtype=obj_ind_type)
@@ -563,7 +560,7 @@ def calc_llk(np.ndarray[float, ndim=1] Y, np.ndarray[ind_type, ndim=1] ix_u, np.
 def predict_arr(np.ndarray[float, ndim=2] M1, np.ndarray[float, ndim=2] M2, np.ndarray[ind_type, ndim=1] ix_u, np.ndarray[ind_type, ndim=1] ix_i, int nthreads):
 	cdef ind_type n = ix_u.shape[0]
 	cdef int k = M1.shape[1]
-	cdef np.ndarray[float, ndim=1] out = np.zeros(n, dtype='float32')
+	cdef np.ndarray[float, ndim=1] out = np.zeros(n, dtype = ctypes.c_float)
 	predict_multiple(&out[0], &M1[0,0], &M2[0,0], &ix_u[0], &ix_i[0], n, k, nthreads)
 	return out
 

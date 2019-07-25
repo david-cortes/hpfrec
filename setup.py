@@ -1,6 +1,6 @@
 try:
 	from setuptools import setup
-	from setuptools.extension import Extension
+	from setuptools import Extension
 except:
 	from distutils.core import setup
 	from distutils.extension import Extension
@@ -33,7 +33,7 @@ setup(
 	 'scipy',
 	 'cython'
 ],
-	version = '0.2.2.15',
+	version = '0.2.2.16',
 	description = 'Hierarchical Poisson matrix factorization for recommender systems',
 	author = 'David Cortes',
 	author_email = 'david.cortes.rivera@gmail.com',
