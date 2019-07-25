@@ -233,10 +233,10 @@ class HPF:
 		assert d_prime>0
 		assert k>0
 		
-		if ncores is None:
-			ncores = 1 
 		if ncores < 1:
 			ncores = multiprocessing.cpu_count()
+		if ncores is None:
+			ncores = 1
 		assert ncores>0
 		assert isinstance(ncores, int)
 
@@ -922,10 +922,11 @@ class HPF:
 									 np.random.uniform(low=.85, high=1.15, size=(n, self.k)).astype(ctypes.c_float)]
 
 	def _check_input_predict_factors(self, ncores, random_seed, stop_thr, maxiter):
-		if ncores == -1:
+
+		if ncores  < 1:
 			ncores = multiprocessing.cpu_count()
-			if ncores is None:
-				ncores = 1 
+		if ncores is None:
+			ncores = 1
 		assert ncores>0
 		assert isinstance(ncores, int)
 
