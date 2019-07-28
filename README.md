@@ -24,20 +24,6 @@ Y_ui ~ Poisson(Theta_u' Beta_i)
 ```
 The parameters are fit using mean-field approximation (a form of Bayesian variational inference) with coordinate ascent (updating each parameter separately until convergence).
 
-## Why is it more efficient
-
-In typical settings for recommendations with implicit data, most users ever see/click/play/buy a handful selected items out of all the available catalog, thus a matrix of user-item interactions would be extremely sparse (most entries would be zero). Algorithms like implicit-ALS or BPR (Bayesian personalized ranking) require iterating over some or all of the missing combinations not seen in the data (e.g. songs not played by each user) in order to compute their respective loss functions, which is slow and not very scalable.
-
-However, Poisson likelihood is given by the formula:
-```L(y) = yhat^y * exp(-yhat) / y!```
-
-If taking the logarithm (log-likelihood), then this becomes:
-```l(y) = -log(y!) + y*log(yhat) - yhat```
-
-Since `log(0!) = 0`, `0*log(yhat) = 0`, and the sum of predictions for all combinations of users and items can be quickly calculated by `sum yhat = sum_{i,j} <U_i, V_j> = <sum_i U_i, sum_j V_j>` (since `U` and `V` are non-negative matrices), it means the model doesn't ever need to make calculations on values that are equal to zero in order to determine their Poisson log-likelihood.
-
-Moreover, negative Poisson log-likelihood is a more appropriate loss for count data than squared loss, which tends to produce not-so-good results when the values to predict follow an exponential rather than a normal distribution.
-
 ## Installation
 
 Package is available on PyPI, can be installed with:
@@ -46,12 +32,14 @@ Package is available on PyPI, can be installed with:
 pip install hpfrec
 ```
 
-As it contains Cython code, it requires a C compiler. In Windows, this usually means it requires a Visual Studio installation (or MinGW + GCC), and if using Anaconda, might also require configuring it to use said Visual Studio instead of MinGW, otherwise the installation from `pip` might fail. For more details see this guide:
+As it contains Cython code, it requires a C compiler. In Windows, this usually means it requires a Visual Studio Build Tools installation (with MSVC140 component for `conda`) (or MinGW + GCC), and if using Anaconda, might also require configuring it to use said Visual Studio instead of MinGW, otherwise the installation from `pip` might fail. For more details see this guide:
 [Cython Extensions On Windows](https://github.com/cython/cython/wiki/CythonExtensionsOnWindows)
 
 On Python 2.7 on Windows, it might additionally require installing extra Visual Basic modules (untested).
 
-On Linux and Mac, the `pip` install should work out-of-the-box, as long as the system has `gcc`.
+On Linux, the `pip` install should work out-of-the-box, as long as the system has `gcc`.
+
+On Mac, installing this package will first require getting `OpenMP` modules for the default `clang` compiler (redistributions from apple don't come with this essential component, even though `clang` itself does fully support it), or installing `gcc` (by default, apple systems will alias `gcc` to `clang`, which causes a lot of problems).
 
 ## Sample usage
 
@@ -162,7 +150,7 @@ h = dill.load(open("HPF_obj.dill", "rb"))
 
 ## Speeding up optimization procedure
 
-For faster fitting and predictions, use SciPy and NumPy libraries compiled against MKL. In Windows, you can find Python wheels (installable with pip after downloading them) of numpy and scipy precompiled with MKL in [Christoph Gohlke's website](https://www.lfd.uci.edu/~gohlke/pythonlibs/). In Linux and Mac, these come by default in Anaconda installations (but are likely to get overwritten if you enable `conda-forge`). In some small experiments from my side, this yields a near 4x speedup compared to using free linear algebra libraries (for AMD cpu's, the speedup might not be as large).
+For faster fitting and predictions, use SciPy and NumPy libraries compiled against MKL or OpenBLAS. In Windows, you can find Python wheels (installable with pip after downloading them) of numpy and scipy precompiled with MKL in [Christoph Gohlke's website](https://www.lfd.uci.edu/~gohlke/pythonlibs/). In Linux and Mac, these come by default in Anaconda installations (but are likely to get overwritten if you enable `conda-forge`).
 
 The constructor for HPF allows some parameters to make it run faster (if you know what you're doing): these are `allow_inconsistent_math=True`, `full_llk=False`, `stop_crit='diff-norm'`, `reindex=False`, `verbose=False`. See the documentation for more details.
 
