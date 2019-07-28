@@ -688,7 +688,7 @@ class HPF:
 		Note
 		----
 		You must pass either the **full set of user-item interactions** that are non-zero for some
-		subset of users, or the **full set of item-user intersactions** that are non-zero for some
+		subset of users, or the **full set of item-user interactions** that are non-zero for some
 		subset of items.
 		Otherwise, if passing a random sample of triplets, the model will not converge to reasonable results.
 
