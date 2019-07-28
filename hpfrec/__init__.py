@@ -676,7 +676,7 @@ class HPF:
 					raise ValueError("Can only make calculations for items that were in the training set.")
 
 		counts_df['ItemId'] = counts_df.ItemId.values.astype(cython_loops.obj_ind_type)
-		counts_df['Count'] = counts_df.ItemId.values.astype(ctypes.c_float)
+		counts_df['Count'] = counts_df.Count.values.astype(ctypes.c_float)
 		return counts_df
 
 	def partial_fit(self, counts_df, batch_type='users', step_size=None,
