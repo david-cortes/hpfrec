@@ -508,8 +508,8 @@ class HPF:
 		if isinstance(val_set, np.ndarray):
 			assert len(val_set.shape) > 1
 			assert val_set.shape[1] >= 3
-			val_set = pd.DataFrame(val_set[:, :3])
-			val_set.columns = ['UserId', 'ItemId', "Count"]
+			self.val_set = pd.DataFrame(val_set[:, :3])
+			self.val_set.columns = ['UserId', 'ItemId', "Count"]
 			
 		elif val_set.__class__.__name__ == 'DataFrame':
 			assert val_set.shape[0] > 0
@@ -521,10 +521,10 @@ class HPF:
 		elif val_set.__class__.__name__ == 'coo_matrix':
 			assert val_set.shape[0] <= self.nusers
 			assert val_set.shape[1] <= self.nitems
-			val_set = pd.DataFrame({
+			self.val_set = pd.DataFrame({
 				'UserId' : val_set.row,
 				'ItemId' : val_set.col,
-				'Count' : val_set.data
+				'Count'  : val_set.data
 				})
 		else:
 			raise ValueError("'val_set' must be a pandas data frame, numpy array, or sparse coo_matrix.")
