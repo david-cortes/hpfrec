@@ -10,12 +10,18 @@ import ctypes
 
 ## Note: As of the end of 2018, MSVC is still stuck with OpenMP 2.0 (released 2002), which does not support
 ## parallel for loops with unsigend iterators. If you are using a different compiler, this part can be safely removed
+## See also: https://github.com/cython/cython/issues/3136
 IF UNAME_SYSNAME == "Windows":
 	obj_ind_type = ctypes.c_long
 	ctypedef long ind_type
+	ctypedef double long_double_type
+	obj_long_double_type = ctypes.c_double
 ELSE:
 	obj_ind_type = ctypes.c_size_t
 	ctypedef size_t ind_type
+	ctypedef long double long_double_type
+	obj_long_double_type = ctypes.c_longdouble
+
 
 ### Helper functions
 ####################
@@ -65,7 +71,7 @@ def assess_convergence(int i, check_every, stop_crit, last_crit, stop_thr,
 					   np.ndarray[float, ndim=2] Beta, ind_type nY,
 					   np.ndarray[float, ndim=1] Y, np.ndarray[ind_type, ndim=1] ix_u, np.ndarray[ind_type, ndim=1] ix_i, ind_type nYv,
 					   np.ndarray[float, ndim=1] Yval, np.ndarray[ind_type, ndim=1] ix_u_val, np.ndarray[ind_type, ndim=1] ix_i_val,
-					   np.ndarray[long double, ndim=1] errs, ind_type k, int nthreads, int verbose, int full_llk, has_valset):
+					   np.ndarray[long_double_type, ndim=1] errs, ind_type k, int nthreads, int verbose, int full_llk, has_valset):
 
 	if stop_crit == 'diff-norm':
 		last_crit = np.linalg.norm(Theta - Theta_prev)
@@ -105,7 +111,7 @@ def assess_convergence(int i, check_every, stop_crit, last_crit, stop_thr,
 
 def eval_after_term(stop_crit, int verbose, int nthreads, int full_llk, ind_type k, ind_type nY, ind_type nYv, has_valset,
 					np.ndarray[float, ndim=2] Theta, np.ndarray[float, ndim=2] Beta,
-					np.ndarray[long double, ndim=1] errs,
+					np.ndarray[long_double_type, ndim=1] errs,
 					np.ndarray[float, ndim=1] Y, np.ndarray[ind_type, ndim=1] ix_u, np.ndarray[ind_type, ndim=1] ix_i,
 					np.ndarray[float, ndim=1] Yval, np.ndarray[ind_type, ndim=1] ix_u_val, np.ndarray[ind_type, ndim=1] ix_i_val):
 	if (stop_crit == 'diff-norm') or (stop_crit == 'maxiter'):
@@ -229,9 +235,9 @@ def fit_hpf(float a, float a_prime, float b_prime,
 
 	cdef float add_k_rte = a_prime/b_prime
 	cdef float add_t_rte = c_prime/d_prime
-	cdef np.ndarray[long double, ndim=1] errs = np.zeros(2, dtype=ctypes.c_longdouble)
+	cdef np.ndarray[long_double_type, ndim=1] errs = np.zeros(2, dtype=obj_long_double_type)
 
-	cdef long double last_crit = - (10**37)
+	cdef long_double_type last_crit = - (10**37)
 	cdef np.ndarray[float, ndim=2] Theta_prev
 	if stop_crit == 'diff-norm':
 		Theta_prev = Theta.copy()
@@ -546,7 +552,7 @@ def calc_user_factors(float a, float a_prime, float b_prime,
 #########################
 def calc_llk(np.ndarray[float, ndim=1] Y, np.ndarray[ind_type, ndim=1] ix_u, np.ndarray[ind_type, ndim=1] ix_i,
 			 np.ndarray[float, ndim=2] Theta, np.ndarray[float, ndim=2] Beta, ind_type k, int nthreads, int full_llk):
-	cdef np.ndarray[long double, ndim=1] o = np.zeros(1, dtype=ctypes.c_longdouble)
+	cdef np.ndarray[long_double_type, ndim=1] o = np.zeros(1, dtype=obj_long_double_type)
 	llk_plus_rmse(&Theta[0,0], &Beta[0,0],
 			 &Y[0], &ix_u[0], &ix_i[0],
 			 <ind_type> Y.shape[0], k,
@@ -645,12 +651,12 @@ cdef void update_G_n_L_sh(float* G_sh, float* L_sh,
 @cython.cdivision(True)
 cdef void llk_plus_rmse(float* T, float* B, float* Y,
 						ind_type* ix_u, ind_type* ix_i, ind_type nY, ind_type kszt,
-						long double* out, int nthreads, int add_mse, int full_llk) nogil:
+						long_double_type* out, int nthreads, int add_mse, int full_llk) nogil:
 	cdef ind_type i
 	cdef int one = 1
 	cdef float yhat
-	cdef long double out1 = 0
-	cdef long double out2 =  0
+	cdef long_double_type out1 = 0
+	cdef long_double_type out2 =  0
 	cdef int k = <int> kszt
 	if add_mse:
 		if full_llk:
@@ -824,9 +830,9 @@ cdef void predict_multiple(float* out, float* M1, float* M2, ind_type* ix_u, ind
 @cython.wraparound(False)
 @cython.nonecheck(False)
 @cython.cdivision(True)
-cdef long double sum_prediction(float* M1, float* M2, ind_type* ix_u, ind_type* ix_i, ind_type n, int k, int nthreads) nogil:
+cdef long_double_type sum_prediction(float* M1, float* M2, ind_type* ix_u, ind_type* ix_i, ind_type n, int k, int nthreads) nogil:
 	
-	cdef long double out = 0
+	cdef long_double_type out = 0
 	cdef int one = 1
 	cdef ind_type kszt = k
 	cdef ind_type i
