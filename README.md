@@ -50,15 +50,15 @@ from hpfrec import HPF
 ## Generating sample counts data
 nusers = 10**2
 nitems = 10**2
-nobs = 10**4
+nobs   = 10**4
 
 np.random.seed(1)
 counts_df = pd.DataFrame({
 	'UserId' : np.random.randint(nusers, size=nobs),
 	'ItemId' : np.random.randint(nitems, size=nobs),
-	'Count' : np.random.gamma(1,1, size=nobs).astype('int32')
+	'Count' :  (np.random.gamma(1,1, size=nobs) + 1).astype('int32')
 	})
-counts_df = counts_df.loc[counts_df.Count > 0].reset_index(drop=True)
+counts_df = counts_df.loc[~counts_df[['UserId', 'ItemId']].duplicated()].reset_index(drop=True)
 
 ## Initializing the model object
 recommender = HPF()
@@ -150,7 +150,7 @@ h = dill.load(open("HPF_obj.dill", "rb"))
 
 ## Speeding up optimization procedure
 
-For faster fitting and predictions, use SciPy and NumPy libraries compiled against MKL or OpenBLAS. In Windows, you can find Python wheels (installable with pip after downloading them) of numpy and scipy precompiled with MKL in [Christoph Gohlke's website](https://www.lfd.uci.edu/~gohlke/pythonlibs/). In Linux and Mac, these come by default in Anaconda installations (but are likely to get overwritten if you enable `conda-forge`).
+For faster fitting and predictions, use SciPy and NumPy libraries compiled against MKL or OpenBLAS. These come by default with MKL in Anaconda installations.
 
 The constructor for HPF allows some parameters to make it run faster (if you know what you're doing): these are `allow_inconsistent_math=True`, `full_llk=False`, `stop_crit='diff-norm'`, `reindex=False`, `verbose=False`. See the documentation for more details.
 
