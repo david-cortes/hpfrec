@@ -191,8 +191,8 @@ class HPF:
 
 	References
 	----------
-	[1] Scalable Recommendation with Hierarchical Poisson Factorization (Gopalan, P., Hofman, J.M. and Blei, D.M., 2015)
-	[2] Stochastic variational inference (Hoffman, M.D., Blei, D.M., Wang, C. and Paisley, J., 2013)
+	.. [1] Scalable Recommendation with Hierarchical Poisson Factorization (Gopalan, P., Hofman, J.M. and Blei, D.M., 2015)
+	.. [2] Stochastic variational inference (Hoffman, M.D., Blei, D.M., Wang, C. and Paisley, J., 2013)
 	"""
 	def __init__(self, k=30, a=0.3, a_prime=0.3, b_prime=1.0,
 				 c=0.3, c_prime=0.3, d_prime=1.0, ncores=-1,
