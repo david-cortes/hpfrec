@@ -1,0 +1,19 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+
+# dist files
+dist/
+*.zip
+*.tar.gz
+
+build/
+	*.*
+
+*.so
+
+hpfrec/
+	*.so
+	cython_loops.c
+
+MANIFEST

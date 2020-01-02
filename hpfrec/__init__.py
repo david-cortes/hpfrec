@@ -460,6 +460,11 @@ class HPF:
 		if self.reindex:
 			self.input_df['UserId'], self.user_mapping_ = pd.factorize(self.input_df.UserId)
 			self.input_df['ItemId'], self.item_mapping_ = pd.factorize(self.input_df.ItemId)
+			### https://github.com/pandas-dev/pandas/issues/30618
+			if self.user_mapping_.__class__.__name__ == "CategoricalIndex":
+				self.user_mapping_ = self.user_mapping_.to_numpy()
+			if self.item_mapping_.__class__.__name__ == "CategoricalIndex":
+				self.item_mapping_ = self.item_mapping_.to_numpy()
 			self.nusers = self.user_mapping_.shape[0]
 			self.nitems = self.item_mapping_.shape[0]
 			self.user_mapping_ = np.array(self.user_mapping_).reshape(-1)
