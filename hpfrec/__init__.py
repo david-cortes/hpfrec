@@ -901,30 +901,28 @@ class HPF:
 		return self
 
 	def _initialize_extra_users(self, n, seed):
-		if seed is not None:
-			np.random.seed(seed)
+		rng = np.random.default_rng(seed = seed if seed > 0 else None)
 
-		new_Theta = np.random.gamma(self.a, 1/self.b_prime, size=(n, self.k)).astype(ctypes.c_float)
+		new_Theta = rng.gamma(self.a, 1/self.b_prime, size=(n, self.k)).astype(ctypes.c_float)
 		self.Theta = np.r_[self.Theta, new_Theta]
 		self.k_rte = np.r_[self.k_rte, b_prime + new_Theta.sum(axis=1, keepdims=True)]
-		new_Gamma_rte = np.random.gamma(self.a_prime, self.b_prime/self.a_prime, size=(n, 1)).astype(ctypes.c_float) \
+		new_Gamma_rte = rng.gamma(self.a_prime, self.b_prime/self.a_prime, size=(n, 1)).astype(ctypes.c_float) \
 							+ self.Beta.sum(axis=0, keepdims=True)
 		self.Gamma_rte = np.r_[self.Gamma_rte, new_Gamma_rte]
 		self.Gamma_shp = np.r_[self.Gamma_shp, new_Gamma_rte * new_Theta * \
-								np.random.uniform(low=.85, high=1.15, size=(n, self.k)).astype(ctypes.c_float)]
+								rng.uniform(low=.85, high=1.15, size=(n, self.k)).astype(ctypes.c_float)]
 
 	def _initialize_extra_items(self, n, seed):
-		if seed is not None:
-			np.random.seed(seed)
+		rng = np.random.default_rng(seed = seed if seed > 0 else None)
 
-		new_Beta = np.random.gamma(self.c, 1/self.d_prime, size=(n, self.k)).astype(ctypes.c_float)
+		new_Beta = rng.gamma(self.c, 1/self.d_prime, size=(n, self.k)).astype(ctypes.c_float)
 		self.Beta = np.r_[self.Beta, new_Beta]
 		self.t_rte = np.r_[self.t_rte, self.d_prime + new_Beta.sum(axis=1, keepdims=True)]
-		new_Lambda_rte = np.random.gamma(self.c_prime, self.d_prime/self.c_prime, size=(n, 1)).astype(ctypes.c_float) \
+		new_Lambda_rte = rng.gamma(self.c_prime, self.d_prime/self.c_prime, size=(n, 1)).astype(ctypes.c_float) \
 							+ self.Theta.sum(axis=0, keepdims=True)
 		self.Lambda_rte = np.r_[self.Lambda_rte, new_Lambda_rte]
 		self.Lambda_shp = np.r_[self.Lambda_shp, new_Lambda_rte * new_Beta * \
-									 np.random.uniform(low=.85, high=1.15, size=(n, self.k)).astype(ctypes.c_float)]
+									 rng.uniform(low=.85, high=1.15, size=(n, self.k)).astype(ctypes.c_float)]
 
 	def _check_input_predict_factors(self, ncores, random_seed, stop_thr, maxiter):
 

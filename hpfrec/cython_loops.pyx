@@ -141,26 +141,25 @@ def initialize_parameters(Theta, Beta, random_seed,
 	nI = Beta.shape[0]
 	k = Theta.shape[1]
 	
-	if random_seed > 0:
-		np.random.seed(random_seed)
-	Theta[:,:] = np.random.gamma(a, 1/b_prime, size=(nU, k)).astype(ctypes.c_float)
-	Beta[:, :] = np.random.gamma(c, 1/d_prime, size=(nI, k)).astype(ctypes.c_float)
+	rng = np.random.default_rng(seed = random_seed if random_seed > 0 else None)
+	Theta[:,:] = rng.gamma(a, 1/b_prime, size=(nU, k)).astype(ctypes.c_float)
+	Beta[:, :] = rng.gamma(c, 1/d_prime, size=(nI, k)).astype(ctypes.c_float)
 
 	### Comment: the code above seems to give worse likelihood in the first iterations, but better
 	### local optima in the end, compared to initializing them like this:
-		# cdef np.ndarray[double, ndim=2] ksi = np.random.gamma(a_prime, b_prime/a_prime, size=(nU,1))
-		# Theta[:,:] = np.random.gamma(a, 1/ksi, size=(nU, k)).astype(ctypes.c_float)
-		# cdef np.ndarray[double, ndim=2] eta = np.random.gamma(c_prime, d_prime/c_prime, size=(nI,1))
-		# Beta[:,:] = np.random.gamma(c, 1/eta, size=(nI, k)).astype(ctypes.c_float)
+		# cdef np.ndarray[double, ndim=2] ksi = rng.gamma(a_prime, b_prime/a_prime, size=(nU,1))
+		# Theta[:,:] = rng.gamma(a, 1/ksi, size=(nU, k)).astype(ctypes.c_float)
+		# cdef np.ndarray[double, ndim=2] eta = rng.gamma(c_prime, d_prime/c_prime, size=(nI,1))
+		# Beta[:,:] = rng.gamma(c, 1/eta, size=(nI, k)).astype(ctypes.c_float)
 
 	k_rte = a_prime/b_prime + Theta.sum(axis=1, keepdims=True)
 	t_rte = c_prime/d_prime + Beta.sum(axis=1, keepdims=True)
 
-	Gamma_rte = np.random.gamma(a_prime, b_prime/a_prime, size=(nU, 1)).astype(ctypes.c_float) + Beta.sum(axis=0, keepdims=True)
-	Lambda_rte = np.random.gamma(c_prime, d_prime/c_prime, size=(nI, 1)).astype(ctypes.c_float) + Theta.sum(axis=0, keepdims=True)
+	Gamma_rte = rng.gamma(a_prime, b_prime/a_prime, size=(nU, 1)).astype(ctypes.c_float) + Beta.sum(axis=0, keepdims=True)
+	Lambda_rte = rng.gamma(c_prime, d_prime/c_prime, size=(nI, 1)).astype(ctypes.c_float) + Theta.sum(axis=0, keepdims=True)
 
-	Gamma_shp = Gamma_rte * Theta * np.random.uniform(low=.85, high=1.15, size=(nU, k)).astype(ctypes.c_float)
-	Lambda_shp = Lambda_rte * Beta * np.random.uniform(low=.85, high=1.15, size=(nI, k)).astype(ctypes.c_float)
+	Gamma_shp = Gamma_rte * Theta * rng.uniform(low=.85, high=1.15, size=(nU, k)).astype(ctypes.c_float)
+	Lambda_shp = Lambda_rte * Beta * rng.uniform(low=.85, high=1.15, size=(nI, k)).astype(ctypes.c_float)
 	np.nan_to_num(Gamma_shp, copy=False)
 	np.nan_to_num(Lambda_shp, copy=False)
 	np.nan_to_num(Gamma_rte, copy=False)
@@ -230,8 +229,7 @@ def fit_hpf(float a, float a_prime, float b_prime,
 		nbatches_u = int(np.ceil(float(nU) / float(users_per_batch)))
 		full_updates = False
 
-	if random_seed > 0:
-		np.random.seed(random_seed)
+	rng = np.random.default_rng(seed = random_seed if random_seed > 0 else None)
 
 	cdef float add_k_rte = a_prime/b_prime
 	cdef float add_t_rte = c_prime/d_prime
@@ -301,7 +299,7 @@ def fit_hpf(float a, float a_prime, float b_prime,
 
 			if user_epoch:
 				## users epoch
-				np.random.shuffle(users_numeration)
+				rng.shuffle(users_numeration)
 				for bt in range(nbatches_u):
 					st_batch = bt * users_per_batch
 					end_batch = min(nU, (bt + 1) * users_per_batch)
@@ -353,7 +351,7 @@ def fit_hpf(float a, float a_prime, float b_prime,
 
 			else:
 				## items epoch
-				np.random.shuffle(items_numeration)
+				rng.shuffle(items_numeration)
 				for bt in range(nbatches_i):
 					st_batch = bt * items_per_batch
 					end_batch = min(nI, (bt + 1) * items_per_batch)
@@ -514,13 +512,12 @@ def calc_user_factors(float a, float a_prime, float b_prime,
 	## initializing parameters
 	cdef float k_shp = a_prime + k*a
 	cdef float t_shp = c_prime + k*c
-	if random_seed > 0:
-		np.random.seed(random_seed)
-	Theta[:] = np.random.gamma(a, 1/b_prime, size = k).astype(ctypes.c_float)
+	rng = np.random.default_rng(seed = random_seed if random_seed > 0 else None)
+	Theta[:] = rng.gamma(a, 1/b_prime, size = k).astype(ctypes.c_float)
 	cdef float k_rte = b_prime + Theta.sum()
-	cdef np.ndarray[float, ndim=1] Gamma_rte = np.random.gamma(a_prime, b_prime/a_prime, size=1).astype(ctypes.c_float) + \
+	cdef np.ndarray[float, ndim=1] Gamma_rte = rng.gamma(a_prime, b_prime/a_prime, size=1).astype(ctypes.c_float) + \
 											Beta.sum(axis=0)
-	cdef np.ndarray[float, ndim=1] Gamma_shp = Gamma_rte * Theta * np.random.uniform(low=.85, high=1.15, size=k).astype(ctypes.c_float)
+	cdef np.ndarray[float, ndim=1] Gamma_shp = Gamma_rte * Theta * rng.uniform(low=.85, high=1.15, size=k).astype(ctypes.c_float)
 	np.nan_to_num(Gamma_shp, copy=False)
 	np.nan_to_num(Gamma_rte, copy=False)
 	cdef np.ndarray[float, ndim=2] phi = np.empty((nY, k), dtype = ctypes.c_float)
