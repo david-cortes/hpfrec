@@ -429,7 +429,7 @@ class HPF:
 			assert 'UserId' in input_df.columns.values
 			assert 'ItemId' in input_df.columns.values
 			assert 'Count' in input_df.columns.values
-			self.input_df = input_df[['UserId', 'ItemId', 'Count']]
+			input_df = input_df[['UserId', 'ItemId', 'Count']]
 			
 		elif input_df.__class__.__name__ == 'coo_matrix':
 			self.nusers = input_df.shape[0]
@@ -448,14 +448,15 @@ class HPF:
 			thr = 0
 		else:
 			thr = 0.9
-		obs_zero = input_df.Count.values <= thr
+		self.input_df = input_df
+		obs_zero = self.input_df.Count.values <= thr
 		if obs_zero.sum() > 0:
 			msg = "'counts_df' contains observations with a count value less than 1, these will be ignored."
 			msg += " Any user or item associated exclusively with zero-value observations will be excluded."
 			msg += " If using 'reindex=False', make sure that your data still meets the necessary criteria."
 			msg += " If you still want to use these observations, set 'stop_crit' to 'diff-norm' or 'maxiter'."
 			warnings.warn(msg)
-			input_df = input_df.loc[~obs_zero]
+			self.input_df = self.input_df.loc[~obs_zero]
 			
 		if self.reindex:
 			self.input_df['UserId'], self.user_mapping_ = pd.factorize(self.input_df.UserId)

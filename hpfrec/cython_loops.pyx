@@ -3,7 +3,7 @@ cimport numpy as np
 cimport cython
 from cython.parallel cimport prange
 from libc.math cimport log, exp
-from scipy.special.cython_special cimport psi, gamma
+from scipy.special.cython_special cimport psi, gamma, loggamma
 from scipy.linalg.cython_blas cimport sdot
 import time, os
 import ctypes
@@ -671,7 +671,7 @@ cdef void llk_plus_rmse(float* T, float* B, float* Y,
 	else:
 		if full_llk:
 			for i in prange(nY, schedule='static', num_threads=nthreads):
-				out1 += Y[i]*log(sdot(&k, &T[ix_u[i] * kszt], &one, &B[ix_i[i] * kszt], &one)) - log(gamma(Y[i] + 1))
+				out1 += Y[i]*log(sdot(&k, &T[ix_u[i] * kszt], &one, &B[ix_i[i] * kszt], &one)) - loggamma(Y[i] + 1)
 			out[0] = out1
 		else:
 			for i in prange(nY, schedule='static', num_threads=nthreads):
