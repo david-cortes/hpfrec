@@ -2,7 +2,16 @@ import numpy as np
 cimport numpy as np
 cimport cython
 from cython.parallel cimport prange
-from libc.math cimport log, exp
+## TODO: use libc.math once Cython 0.30 is released
+# from libc.math cimport log, exp
+cdef extern from "<math.h>":
+	double log(double x) nogil
+	float logf(float) nogil
+	double exp(double x) nogil
+	float expf(float) nogil
+	const float HUGE_VALF
+	const double HUGE_VAL
+	const long double HUGE_VALL
 from scipy.special.cython_special cimport psi, gamma, loggamma
 from scipy.linalg.cython_blas cimport sdot
 import time, os
@@ -16,11 +25,13 @@ IF UNAME_SYSNAME == "Windows":
 	ctypedef long long ind_type
 	ctypedef double long_double_type
 	obj_long_double_type = ctypes.c_double
+	LD_HUGE_VAL = HUGE_VAL
 ELSE:
 	obj_ind_type = ctypes.c_size_t
 	ctypedef size_t ind_type
 	ctypedef long double long_double_type
 	obj_long_double_type = ctypes.c_longdouble
+	LD_HUGE_VAL = HUGE_VALL
 
 
 ### Helper functions
@@ -235,7 +246,7 @@ def fit_hpf(float a, float a_prime, float b_prime,
 	cdef float add_t_rte = c_prime/d_prime
 	cdef np.ndarray[long_double_type, ndim=1] errs = np.zeros(2, dtype=obj_long_double_type)
 
-	cdef long_double_type last_crit = - (10**37)
+	cdef long_double_type last_crit = - LD_HUGE_VAL
 	cdef np.ndarray[float, ndim=2] Theta_prev
 	if stop_crit == 'diff-norm':
 		Theta_prev = Theta.copy()
@@ -586,7 +597,7 @@ cdef void update_phi(float* G_sh, float* G_rt, float* L_sh, float* L_rt,
 			uid = ix_u[i]
 			iid = ix_i[i]
 			sumphi = 0
-			maxval = - 10**1
+			maxval = - HUGE_VALF
 			uid_st = k*uid
 			iid_st = k*iid
 			phi_st = i*k
@@ -595,7 +606,7 @@ cdef void update_phi(float* G_sh, float* G_rt, float* L_sh, float* L_rt,
 				if phi[phi_st + j] > maxval:
 					maxval = phi[phi_st + j]
 			for j in range(k):
-				phi[phi_st + j] = exp(phi[phi_st + j] - maxval)
+				phi[phi_st + j] = expf(phi[phi_st + j] - maxval)
 				sumphi += phi[phi_st + j]
 			for j in range(k):
 				phi[phi_st + j] *= Y[i]/sumphi
@@ -659,12 +670,12 @@ cdef void llk_plus_rmse(float* T, float* B, float* Y,
 		if full_llk:
 			for i in prange(nY, schedule='static', num_threads=nthreads):
 				yhat = sdot(&k, &T[ix_u[i] * kszt], &one, &B[ix_i[i] * kszt], &one)
-				out1 += Y[i]*log(yhat) - log(gamma(Y[i] + 1))
+				out1 += Y[i]*log(yhat) - loggamma(Y[i] + 1)
 				out2 += (Y[i] - yhat)**2
 		else:
 			for i in prange(nY, schedule='static', num_threads=nthreads):
 				yhat = sdot(&k, &T[ix_u[i] * kszt], &one, &B[ix_i[i] * kszt], &one)
-				out1 += Y[i]*log(yhat)
+				out1 += Y[i]*logf(yhat)
 				out2 += (Y[i] - yhat)**2
 		out[0] = out1
 		out[1] = out2
@@ -675,7 +686,7 @@ cdef void llk_plus_rmse(float* T, float* B, float* Y,
 			out[0] = out1
 		else:
 			for i in prange(nY, schedule='static', num_threads=nthreads):
-				out1 += Y[i]*log(sdot(&k, &T[ix_u[i] * kszt], &one, &B[ix_i[i] * kszt], &one))
+				out1 += Y[i]*logf(sdot(&k, &T[ix_u[i] * kszt], &one, &B[ix_i[i] * kszt], &one))
 			out[0] = out1
 	### Comment: adding += directly to *out triggers compiler optimizations that produce
 	### different (and wrong) results across different runs.
@@ -700,13 +711,13 @@ cdef void update_phi_csr(float* G_sh, float* G_rt, float* L_sh, float* L_rt,
 			st_L = k * ix_i[y_ix]
 			phi_st = y_ix * k
 			sumrow = 0
-			maxval = - 10**1
+			maxval = - HUGE_VALF
 			for j in range(k):
 				phi[phi_st + j] = psi(G_sh[st_G + j]) - log(G_rt[st_G + j]) +psi(L_sh[st_L + j]) - log(L_rt[st_L + j])
 				if phi[phi_st + j] > maxval:
 					maxval = phi[phi_st + j]
 			for j in range(k):
-				phi[phi_st + j] = exp(phi[phi_st + j] - maxval)
+				phi[phi_st + j] = expf(phi[phi_st + j] - maxval)
 				sumrow += phi[phi_st + j]
 			for j in range(k):
 				phi[phi_st + j] *= Y[y_ix] / sumrow
@@ -731,13 +742,13 @@ cdef void update_phi_csr_small(float* G_sh, float* G_rt, float* L_sh, float* L_r
 			st_L = k * ix_i[y_ix]
 			phi_st = (st_phi_u[u] + i) * k
 			sumrow = 0
-			maxval = - 10**11
+			maxval = - HUGE_VALF
 			for j in range(k):
 				phi[phi_st + j] = psi(G_sh[st_G + j]) - log(G_rt[st_G + j]) +psi(L_sh[st_L + j]) - log(L_rt[st_L + j])
 				if phi[phi_st + j] > maxval:
 					maxval = phi[phi_st + j]
 			for j in range(k):
-				phi[phi_st + j] = exp(phi[phi_st + j] - maxval)
+				phi[phi_st + j] = expf(phi[phi_st + j] - maxval)
 				sumrow += phi[phi_st + j]
 			for j in range(k):
 				phi[phi_st + j] *= Y[y_ix] / sumrow

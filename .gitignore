@@ -2,6 +2,9 @@
 __pycache__/
 *.py[cod]
 
+
+.directory
+
 # dist files
 dist/
 *.zip
@@ -10,6 +13,9 @@ dist/
 build/
 	*.*
 
+hpfrec.egg-info/
+    *.*
+	
 *.so
 
 hpfrec/
