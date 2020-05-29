@@ -10,7 +10,7 @@ As a point of reference, fitting the model through full-batch updates to the Mil
 
 For a similar package using also item/user side information see [ctpfrec](https://github.com/david-cortes/ctpfrec).
 
-For a much faster (and oftentimes better) non-Bayesian version see [poismf](https://github.com/david-cortes/poismf).
+For a non-Bayesian version which can produce sparse factors see [poismf](https://github.com/david-cortes/poismf).
 
 ## Model description
 
@@ -129,7 +129,7 @@ If passing `reindex=True`, all user and item IDs that you pass to `.fit` will be
 
 For a more detailed example, see the IPython notebook [recommending songs with EchoNest MillionSong dataset](http://nbviewer.jupyter.org/github/david-cortes/hpfrec/blob/master/example/hpfrec_echonest.ipynb) illustrating its usage with the EchoNest TasteProfile dataset.
 
-This package contains only functionality related to fitting this model. For general evaluation metrics for recommendations on implicit data see other packages such as [lightFM](https://github.com/lyst/lightfm).
+This package contains only functionality related to fitting this model. For general evaluation metrics for recommendations on implicit data see other packages such as [LensKit](https://github.com/lenskit/lkpy).
 
 ## Documentation
 
