@@ -72,7 +72,7 @@ def get_unique_items_batch(np.ndarray[ind_type, ndim=1] users_this_batch,
 
 def save_parameters(verbose, save_folder, file_names, obj_list):
 	if verbose:
-		print "Saving final parameters to .csv files..."
+		print("Saving final parameters to .csv files...")
 
 	for i in range(len(file_names)):
 		np.savetxt(os.path.join(save_folder, file_names[i]), obj_list[i], fmt="%.10f", delimiter=',')
@@ -114,7 +114,7 @@ def assess_convergence(int i, check_every, stop_crit, last_crit, stop_thr,
 			if (i+1) == check_every:
 				last_crit = errs[0]
 			else:
-				if (1 - errs[0]/last_crit) <= stop_thr:
+				if (1. - errs[0]/last_crit) <= stop_thr:
 					return True, last_crit
 				last_crit = errs[0]
 	
@@ -153,8 +153,8 @@ def initialize_parameters(Theta, Beta, random_seed,
 	k = Theta.shape[1]
 	
 	rng = np.random.default_rng(seed = random_seed if random_seed > 0 else None)
-	Theta[:,:] = rng.gamma(a, 1/b_prime, size=(nU, k)).astype(ctypes.c_float)
-	Beta[:, :] = rng.gamma(c, 1/d_prime, size=(nI, k)).astype(ctypes.c_float)
+	Theta[:,:] = rng.gamma(a, 1./b_prime, size=(nU, k)).astype(ctypes.c_float)
+	Beta[:, :] = rng.gamma(c, 1./d_prime, size=(nI, k)).astype(ctypes.c_float)
 
 	### Comment: the code above seems to give worse likelihood in the first iterations, but better
 	### local optima in the end, compared to initializing them like this:
@@ -210,7 +210,7 @@ def fit_hpf(float a, float a_prime, float b_prime,
 	cdef float t_shp = c_prime + k*c
 
 	if verbose>0:
-		print "Initializing parameters..."
+		print("Initializing parameters...")
 
 	cdef np.ndarray[float, ndim=2] Gamma_shp, Gamma_rte, Lambda_shp, Lambda_rte, k_rte, t_rte
 	Gamma_shp, Gamma_rte, Lambda_shp, Lambda_rte, k_rte, t_rte = initialize_parameters(
@@ -219,7 +219,7 @@ def fit_hpf(float a, float a_prime, float b_prime,
 	cdef np.ndarray[float, ndim=2] phi
 	if ((users_per_batch == 0) and (items_per_batch == 0)) or alloc_full_phi:
 		if verbose>0:
-			print "Allocating Phi matrix..."
+			print("Allocating Phi matrix...")
 		phi = np.empty((nY, k), dtype = ctypes.c_float)
 
 	cdef np.ndarray[ind_type, ndim=1] users_numeration, items_numeration, users_this_batch, items_this_batch, st_ix_id_batch
@@ -230,7 +230,7 @@ def fit_hpf(float a, float a_prime, float b_prime,
 	full_updates = True
 	if items_per_batch>0:
 		if verbose:
-			print "Creating item indices for stochastic optimization..."
+			print("Creating item indices for stochastic optimization...")
 		items_numeration = np.arange(nI, dtype=obj_ind_type)
 		nbatches_i = int(np.ceil(float(nI) / float(items_per_batch)))
 		st_ix_i_copy, ix_u_copy, Ycopy = get_csc_data(ix_u, ix_i, Y, nU, nI)
@@ -255,7 +255,7 @@ def fit_hpf(float a, float a_prime, float b_prime,
 
 	cdef int one = 1
 	if verbose>0:
-		print "Initializing optimization procedure..."
+		print("Initializing optimization procedure...")
 	cdef double st_time = time.time()
 
 	### Main loop
@@ -852,7 +852,7 @@ cdef long_double_type sum_prediction(float* M1, float* M2, ind_type* ix_u, ind_t
 ### Printing output
 ###################
 def print_norm_diff(int it, int check_every, float normdiff):
-	print "Iteration %d | Norm(Theta_{%d} - Theta_{%d}): %.5f" % (it, it, it-check_every, normdiff)
+	print("Iteration %d | Norm(Theta_{%d} - Theta_{%d}): %.5f" % (it, it, it-check_every, normdiff))
 
 def print_llk_iter(int it, long long llk, double rmse, int has_valset):
 	cdef str dataset_type
@@ -861,11 +861,11 @@ def print_llk_iter(int it, long long llk, double rmse, int has_valset):
 	else:
 		dataset_type = "train"
 	msg = "Iteration %d | " + dataset_type + " llk: %d | " + dataset_type + " rmse: %.4f"
-	print msg % (it, llk, rmse)
+	print(msg % (it, llk, rmse))
 
 def print_final_msg( int it, long long llk, double rmse, double end_tm):
-	print "\n\nOptimization finished"
-	print "Final log-likelihood: %d" % llk
-	print "Final RMSE: %.4f" % rmse
-	print "Minutes taken (optimization part): %.1f" % end_tm
-	print ""
+	print("\n\nOptimization finished")
+	print("Final log-likelihood: %d" % llk)
+	print("Final RMSE: %.4f" % rmse)
+	print("Minutes taken (optimization part): %.1f" % end_tm)
+	print("")
