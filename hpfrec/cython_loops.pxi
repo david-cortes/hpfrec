@@ -141,7 +141,7 @@ def initialize_parameters(Theta, Beta, random_seed,
 	nI = Beta.shape[0]
 	k = Theta.shape[1]
 	
-	rng = np.random.default_rng(seed = random_seed if random_seed > 0 else None)
+	rng = np.random.Generator(np.random.MT19937(seed = random_seed if random_seed > 0 else None))
 	Theta[:,:] = rng.gamma(a, 1./b_prime, size=(nU, k)).astype(c_real_t)
 	Beta[:, :] = rng.gamma(c, 1./d_prime, size=(nI, k)).astype(c_real_t)
 
