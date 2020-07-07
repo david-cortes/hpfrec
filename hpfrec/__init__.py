@@ -1,6 +1,6 @@
 import pandas as pd, numpy as np
 import multiprocessing, os, warnings
-import hpfrec.cython_loops as cython_loops
+from . import cython_loops_float, cython_loops_double
 import ctypes, types, inspect
 from scipy.sparse import coo_matrix, csr_matrix
 pd.options.mode.chained_assignment = None
@@ -128,6 +128,11 @@ class HPF:
 	maxiter : int or None
 		Maximum number of iterations for which to run the optimization procedure. This corresponds to epochs when
 		fitting in batches of users. Recommended to use a lower number when passing a batch size.
+	use_float : bool
+		Whether to use the C float type (typically ``np.float32``). Using float types (as compared to double)
+		results in less memory usage and faster operations, but it has less numeric precision and the results
+		will be slightly worse compared to using double.
+		If passing ``False``, will use C double (typically ``np.float64``).
 	reindex : bool
 		Whether to reindex data internally.
 	verbose : bool
@@ -198,8 +203,8 @@ class HPF:
 				 c=0.3, c_prime=0.3, d_prime=1.0, ncores=-1,
 				 stop_crit='train-llk', check_every=10, stop_thr=1e-3,
 				 users_per_batch=None, items_per_batch=None, step_size=lambda x: 1/np.sqrt(x+2),
-				 maxiter=100, reindex=True, verbose=True,
-				 random_seed = None, allow_inconsistent_math=False, full_llk=False,
+				 maxiter=100, use_float=True, reindex=True, verbose=True,
+				 random_seed=None, allow_inconsistent_math=False, full_llk=False,
 				 alloc_full_phi=False, keep_data=True, save_folder=None,
 				 produce_dicts=True, keep_all_objs=True, sum_exp_trick=False):
 
@@ -309,6 +314,7 @@ class HPF:
 
 		self.ncores = ncores
 		self.allow_inconsistent_math = bool(allow_inconsistent_math)
+		self.use_float = bool(use_float)
 		self.random_seed = random_seed
 		self.stop_crit = stop_crit
 		self.reindex = bool(reindex)
@@ -494,8 +500,9 @@ class HPF:
 				else:
 					pf.write("random seed: None\n")
 		
-		if self.input_df['Count'].dtype != ctypes.c_float:
-			self.input_df['Count'] = self.input_df.Count.astype(ctypes.c_float)
+		cython_loops = cython_loops_float if self.use_float else cython_loops_double
+		if self.input_df['Count'].dtype != cython_loops.c_real_t:
+			self.input_df['Count'] = self.input_df.Count.astype(cython_loops.c_real_t)
 		if self.input_df['UserId'].dtype != cython_loops.obj_ind_type:
 			self.input_df['UserId'] = self.input_df.UserId.astype(cython_loops.obj_ind_type)
 		if self.input_df['ItemId'].dtype != cython_loops.obj_ind_type:
@@ -563,8 +570,9 @@ class HPF:
 			else:
 				self.val_set.reset_index(drop=True, inplace=True)
 
-		if self.val_set['Count'].dtype != ctypes.c_float:
-			self.val_set['Count'] = self.val_set.Count.astype(ctypes.c_float)
+		cython_loops = cython_loops_float if self.use_float else cython_loops_double
+		if self.val_set['Count'].dtype != cython_loops.c_real_t:
+			self.val_set['Count'] = self.val_set.Count.astype(cython_loops.c_real_t)
 		if self.val_set['UserId'].dtype != cython_loops.obj_ind_type:
 			self.val_set['UserId'] = self.val_set.UserId.astype(cython_loops.obj_ind_type)
 		if self.val_set['ItemId'].dtype != cython_loops.obj_ind_type:
@@ -572,6 +580,7 @@ class HPF:
 		return None
 			
 	def _store_metadata(self, for_partial_fit=False):
+		cython_loops = cython_loops_float if self.use_float else cython_loops_double
 		if self.verbose and for_partial_fit:
 			print("Creating user indices for stochastic optimization...")
 		X = coo_matrix((self.input_df.Count.values, (self.input_df.UserId.values, self.input_df.ItemId.values)), shape=(self.nusers, self.nitems))
@@ -587,8 +596,9 @@ class HPF:
 
 	def _cast_before_fit(self):
 		## setting all parameters and data to the right type
-		self.Theta = np.empty((self.nusers, self.k), dtype=ctypes.c_float)
-		self.Beta = np.empty((self.nitems, self.k), dtype=ctypes.c_float)
+		cython_loops = cython_loops_float if self.use_float else cython_loops_double
+		self.Theta = np.empty((self.nusers, self.k), dtype=cython_loops.c_real_t)
+		self.Beta = np.empty((self.nitems, self.k), dtype=cython_loops.c_real_t)
 		self.k = cython_loops.cast_ind_type(self.k)
 		self.nusers = cython_loops.cast_ind_type(self.nusers)
 		self.nitems = cython_loops.cast_ind_type(self.nitems)
@@ -600,25 +610,26 @@ class HPF:
 		self.random_seed = cython_loops.cast_int(self.random_seed)
 		self.check_every = cython_loops.cast_int(self.check_every)
 
-		self.stop_thr = cython_loops.cast_float(self.stop_thr)
-		self.a = cython_loops.cast_float(self.a)
-		self.a_prime = cython_loops.cast_float(self.a_prime)
-		self.b_prime = cython_loops.cast_float(self.b_prime)
-		self.c = cython_loops.cast_float(self.c)
-		self.c_prime = cython_loops.cast_float(self.c_prime)
-		self.d_prime = cython_loops.cast_float(self.d_prime)
+		self.stop_thr = cython_loops.cast_real_t(self.stop_thr)
+		self.a = cython_loops.cast_real_t(self.a)
+		self.a_prime = cython_loops.cast_real_t(self.a_prime)
+		self.b_prime = cython_loops.cast_real_t(self.b_prime)
+		self.c = cython_loops.cast_real_t(self.c)
+		self.c_prime = cython_loops.cast_real_t(self.c_prime)
+		self.d_prime = cython_loops.cast_real_t(self.d_prime)
 
 		if self.save_folder is None:
 			self.save_folder = ""
 	
 	def _fit(self):
+		cython_loops = cython_loops_float if self.use_float else cython_loops_double
 
 		if self.val_set is None:
 			use_valset = cython_loops.cast_int(0)
 			self.val_set = pd.DataFrame(np.empty((0,3)), columns=['UserId','ItemId','Count'])
 			self.val_set['UserId'] = self.val_set.UserId.astype(cython_loops.obj_ind_type)
 			self.val_set['ItemId'] = self.val_set.ItemId.astype(cython_loops.obj_ind_type)
-			self.val_set['Count'] = self.val_set.Count.values.astype(ctypes.c_float)
+			self.val_set['Count'] = self.val_set.Count.values.astype(cython_loops.c_real_t)
 		else:
 			use_valset = cython_loops.cast_int(1)
 
@@ -681,8 +692,9 @@ class HPF:
 				if (counts_df.ItemId == -1).sum() > 0:
 					raise ValueError("Can only make calculations for items that were in the training set.")
 
+		cython_loops = cython_loops_float if self.use_float else cython_loops_double
 		counts_df['ItemId'] = counts_df.ItemId.values.astype(cython_loops.obj_ind_type)
-		counts_df['Count'] = counts_df.Count.values.astype(ctypes.c_float)
+		counts_df['Count'] = counts_df.Count.values.astype(cython_loops.c_real_t)
 		return counts_df
 
 	def partial_fit(self, counts_df, batch_type='users', step_size=None,
@@ -834,7 +846,8 @@ class HPF:
 		assert 'Count' in counts_df.columns.values
 		assert counts_df.shape[0] > 0
 
-		Y_batch = counts_df.Count.values.astype(ctypes.c_float)
+		cython_loops = cython_loops_float if self.use_float else cython_loops_double
+		Y_batch = counts_df.Count.values.astype(cython_loops.c_real_t)
 		ix_u_batch = counts_df.UserId.values.astype(cython_loops.obj_ind_type)
 		ix_i_batch = counts_df.ItemId.values.astype(cython_loops.obj_ind_type)
 
@@ -876,10 +889,10 @@ class HPF:
 			self._initialize_extra_items(nitems_add, random_seed)
 			self.nitems += nitems_add
 
-		k_shp = cython_loops.cast_float(self.a_prime + self.k * self.a)
-		t_shp = cython_loops.cast_float(self.c_prime + self.k * self.c)
-		add_k_rte = cython_loops.cast_float(self.a_prime / self.b_prime)
-		add_t_rte = cython_loops.cast_float(self.c_prime / self.d_prime)
+		k_shp = cython_loops.cast_real_t(self.a_prime + self.k * self.a)
+		t_shp = cython_loops.cast_real_t(self.c_prime + self.k * self.c)
+		add_k_rte = cython_loops.cast_real_t(self.a_prime / self.b_prime)
+		add_t_rte = cython_loops.cast_real_t(self.c_prime / self.d_prime)
 		multiplier_batch = float(nusers) / users_in_batch.shape[0]
 
 		cython_loops.partial_fit(
@@ -893,7 +906,7 @@ class HPF:
 					k_shp, t_shp, cython_loops.cast_ind_type(self.k),
 					users_in_batch, items_in_batch,
 					cython_loops.cast_int(self.allow_inconsistent_math),
-					cython_loops.cast_float(step_size), cython_loops.cast_float(multiplier_batch),
+					cython_loops.cast_real_t(step_size), cython_loops.cast_real_t(multiplier_batch),
 					self.ncores, user_batch
 				)
 
@@ -902,28 +915,30 @@ class HPF:
 		return self
 
 	def _initialize_extra_users(self, n, seed):
+		cython_loops = cython_loops_float if self.use_float else cython_loops_double
 		rng = np.random.default_rng(seed = seed if seed > 0 else None)
 
-		new_Theta = rng.gamma(self.a, 1/self.b_prime, size=(n, self.k)).astype(ctypes.c_float)
+		new_Theta = rng.gamma(self.a, 1./self.b_prime, size=(n, self.k)).astype(cython_loops.c_real_t)
 		self.Theta = np.r_[self.Theta, new_Theta]
 		self.k_rte = np.r_[self.k_rte, b_prime + new_Theta.sum(axis=1, keepdims=True)]
-		new_Gamma_rte = rng.gamma(self.a_prime, self.b_prime/self.a_prime, size=(n, 1)).astype(ctypes.c_float) \
+		new_Gamma_rte = rng.gamma(self.a_prime, self.b_prime/self.a_prime, size=(n, 1)).astype(cython_loops.c_real_t) \
 							+ self.Beta.sum(axis=0, keepdims=True)
 		self.Gamma_rte = np.r_[self.Gamma_rte, new_Gamma_rte]
 		self.Gamma_shp = np.r_[self.Gamma_shp, new_Gamma_rte * new_Theta * \
-								rng.uniform(low=.85, high=1.15, size=(n, self.k)).astype(ctypes.c_float)]
+								rng.uniform(low=.85, high=1.15, size=(n, self.k)).astype(cython_loops.c_real_t)]
 
 	def _initialize_extra_items(self, n, seed):
+		cython_loops = cython_loops_float if self.use_float else cython_loops_double
 		rng = np.random.default_rng(seed = seed if seed > 0 else None)
 
-		new_Beta = rng.gamma(self.c, 1/self.d_prime, size=(n, self.k)).astype(ctypes.c_float)
+		new_Beta = rng.gamma(self.c, 1./self.d_prime, size=(n, self.k)).astype(cython_loops.c_real_t)
 		self.Beta = np.r_[self.Beta, new_Beta]
 		self.t_rte = np.r_[self.t_rte, self.d_prime + new_Beta.sum(axis=1, keepdims=True)]
-		new_Lambda_rte = rng.gamma(self.c_prime, self.d_prime/self.c_prime, size=(n, 1)).astype(ctypes.c_float) \
+		new_Lambda_rte = rng.gamma(self.c_prime, self.d_prime/self.c_prime, size=(n, 1)).astype(cython_loops.c_real_t) \
 							+ self.Theta.sum(axis=0, keepdims=True)
 		self.Lambda_rte = np.r_[self.Lambda_rte, new_Lambda_rte]
 		self.Lambda_shp = np.r_[self.Lambda_shp, new_Lambda_rte * new_Beta * \
-									 rng.uniform(low=.85, high=1.15, size=(n, self.k)).astype(ctypes.c_float)]
+									 rng.uniform(low=.85, high=1.15, size=(n, self.k)).astype(cython_loops.c_real_t)]
 
 	def _check_input_predict_factors(self, ncores, random_seed, stop_thr, maxiter):
 
@@ -1000,7 +1015,8 @@ class HPF:
 		counts_df = self._process_data_single(counts_df)
 
 		## calculating the latent factors
-		Theta = np.empty(self.k, dtype = ctypes.c_float)
+		cython_loops = cython_loops_float if self.use_float else cython_loops_double
+		Theta = np.empty(self.k, dtype = cython_loops.c_real_t)
 		temp = cython_loops.calc_user_factors(
 								 self.a, self.a_prime, self.b_prime,
 								 self.c, self.c_prime, self.d_prime,
@@ -1011,7 +1027,7 @@ class HPF:
 								 self.Lambda_rte,
 								 cython_loops.cast_ind_type(counts_df.shape[0]), cython_loops.cast_ind_type(self.k),
 								 cython_loops.cast_int(int(maxiter)), cython_loops.cast_int(ncores),
-								 cython_loops.cast_int(int(random_seed)), cython_loops.cast_float(stop_thr),
+								 cython_loops.cast_int(int(random_seed)), cython_loops.cast_real_t(stop_thr),
 								 cython_loops.cast_int(bool(return_all))
 								 )
 
@@ -1096,6 +1112,7 @@ class HPF:
 		## processing the data
 		counts_df = self._process_data_single(counts_df)
 		
+		cython_loops = cython_loops_float if self.use_float else cython_loops_double
 		if update_all_params:
 			counts_df['UserId'] = user_id
 			counts_df['UserId'] = counts_df.UserId.astype(cython_loops.obj_ind_type)
@@ -1110,7 +1127,7 @@ class HPF:
 					Theta_prev = self.Theta[-1].copy()
 		else:
 			## calculating the latent factors
-			Theta = np.empty(self.k, dtype = ctypes.c_float)
+			Theta = np.empty(self.k, dtype = cython_loops.c_real_t)
 			temp = cython_loops.calc_user_factors(
 								 self.a, self.a_prime, self.b_prime,
 								 self.c, self.c_prime, self.d_prime,
@@ -1251,6 +1268,7 @@ class HPF:
 			else:
 				return self.Theta[user].dot(self.Beta[item].T).reshape(-1)[0]
 		else:
+			cython_loops = cython_loops_float if self.use_float else cython_loops_double
 			nan_entries = (user == -1) | (item == -1)
 			if nan_entries.sum() == 0:
 				if user.dtype != cython_loops.obj_ind_type:
@@ -1408,6 +1426,7 @@ class HPF:
 		"""
 		assert self.is_fitted
 		self._process_valset(input_df, valset=False)
+		cython_loops = cython_loops_float if self.use_float else cython_loops_double
 		self.ncores = cython_loops.cast_int(self.ncores)
 		out = {'llk': cython_loops.calc_llk(self.val_set.Count.values,
 											self.val_set.UserId.values,

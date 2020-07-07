@@ -29,11 +29,11 @@ setup(
 	packages = ['hpfrec'],
 	install_requires=[
 	 'pandas>=0.24',
-	 'numpy',
+	 'numpy>=1.18',
 	 'scipy',
 	 'cython'
 ],
-	version = '0.2.2.25',
+	version = '0.2.3',
 	description = 'Hierarchical Poisson matrix factorization for recommender systems',
 	author = 'David Cortes',
 	author_email = 'david.cortes.rivera@gmail.com',
@@ -42,5 +42,6 @@ setup(
 	classifiers = [],
 
 	cmdclass = {'build_ext': build_ext_subclass},
-	ext_modules = [Extension("hpfrec.cython_loops", sources=["hpfrec/cython_loops.pyx"], include_dirs=[numpy.get_include()])]
+	ext_modules = [ Extension("hpfrec.cython_loops_float", sources=["hpfrec/cython_float.pyx"], include_dirs=[numpy.get_include()]),
+					Extension("hpfrec.cython_loops_double", sources=["hpfrec/cython_double.pyx"], include_dirs=[numpy.get_include()])]
 )

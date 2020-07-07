@@ -74,8 +74,8 @@ recommender = HPF(
 	c=0.3, c_prime=0.3, d_prime=1.0, ncores=-1,
 	stop_crit='train-llk', check_every=10, stop_thr=1e-3,
 	users_per_batch=None, items_per_batch=None, step_size=lambda x: 1/np.sqrt(x+2),
-	maxiter=100, reindex=True, verbose=True,
-	random_seed = None, allow_inconsistent_math=False, full_llk=False,
+	maxiter=100, use_float=True, reindex=True, verbose=True,
+	random_seed=None, allow_inconsistent_math=False, full_llk=False,
 	alloc_full_phi=False, keep_data=True, save_folder=None,
 	produce_dicts=True, keep_all_objs=True, sum_exp_trick=False
 )

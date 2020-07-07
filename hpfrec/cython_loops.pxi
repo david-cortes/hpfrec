@@ -2,18 +2,7 @@ import numpy as np
 cimport numpy as np
 cimport cython
 from cython.parallel cimport prange
-## TODO: use libc.math once Cython 0.30 is released
-# from libc.math cimport log, exp
-cdef extern from "<math.h>":
-	double log(double x) nogil
-	float logf(float) nogil
-	double exp(double x) nogil
-	float expf(float) nogil
-	const float HUGE_VALF
-	const double HUGE_VAL
-	const long double HUGE_VALL
 from scipy.special.cython_special cimport psi, gamma, loggamma
-from scipy.linalg.cython_blas cimport sdot
 import time, os
 import ctypes
 
@@ -36,8 +25,8 @@ ELSE:
 
 ### Helper functions
 ####################
-def cast_float(n):
-	return <float> n
+def cast_real_t(n):
+	return <real_t> n
 
 def cast_int(n):
 	return <int> n
@@ -51,7 +40,7 @@ def get_csc_data(ix_u, ix_i, Y, nU, nI):
 	from scipy.sparse import coo_matrix, csc_matrix
 	X = coo_matrix((Y, (ix_u, ix_i)), shape=(nU, nI))
 	X = csc_matrix(X)
-	return X.indptr.astype(obj_ind_type), X.indices.astype(obj_ind_type), X.data.astype(ctypes.c_float)
+	return X.indptr.astype(obj_ind_type), X.indices.astype(obj_ind_type), X.data.astype(c_real_t)
 
 def get_unique_items_batch(np.ndarray[ind_type, ndim=1] users_this_batch,
 						   np.ndarray[ind_type, ndim=1] st_ix_u,
@@ -78,16 +67,16 @@ def save_parameters(verbose, save_folder, file_names, obj_list):
 		np.savetxt(os.path.join(save_folder, file_names[i]), obj_list[i], fmt="%.10f", delimiter=',')
 
 def assess_convergence(int i, check_every, stop_crit, last_crit, stop_thr,
-					   np.ndarray[float, ndim=2] Theta, np.ndarray[float, ndim=2] Theta_prev,
-					   np.ndarray[float, ndim=2] Beta, ind_type nY,
-					   np.ndarray[float, ndim=1] Y, np.ndarray[ind_type, ndim=1] ix_u, np.ndarray[ind_type, ndim=1] ix_i, ind_type nYv,
-					   np.ndarray[float, ndim=1] Yval, np.ndarray[ind_type, ndim=1] ix_u_val, np.ndarray[ind_type, ndim=1] ix_i_val,
+					   np.ndarray[real_t, ndim=2] Theta, np.ndarray[real_t, ndim=2] Theta_prev,
+					   np.ndarray[real_t, ndim=2] Beta, ind_type nY,
+					   np.ndarray[real_t, ndim=1] Y, np.ndarray[ind_type, ndim=1] ix_u, np.ndarray[ind_type, ndim=1] ix_i, ind_type nYv,
+					   np.ndarray[real_t, ndim=1] Yval, np.ndarray[ind_type, ndim=1] ix_u_val, np.ndarray[ind_type, ndim=1] ix_i_val,
 					   np.ndarray[long_double_type, ndim=1] errs, ind_type k, int nthreads, int verbose, int full_llk, has_valset):
 
 	if stop_crit == 'diff-norm':
 		last_crit = np.linalg.norm(Theta - Theta_prev)
 		if verbose:
-			print_norm_diff(i+1, check_every, <float> last_crit)
+			print_norm_diff(i+1, check_every, <real_t> last_crit)
 		if last_crit < stop_thr:
 			return True, last_crit
 		Theta_prev[:,:] = Theta.copy()
@@ -121,10 +110,10 @@ def assess_convergence(int i, check_every, stop_crit, last_crit, stop_thr,
 	return False, last_crit
 
 def eval_after_term(stop_crit, int verbose, int nthreads, int full_llk, ind_type k, ind_type nY, ind_type nYv, has_valset,
-					np.ndarray[float, ndim=2] Theta, np.ndarray[float, ndim=2] Beta,
+					np.ndarray[real_t, ndim=2] Theta, np.ndarray[real_t, ndim=2] Beta,
 					np.ndarray[long_double_type, ndim=1] errs,
-					np.ndarray[float, ndim=1] Y, np.ndarray[ind_type, ndim=1] ix_u, np.ndarray[ind_type, ndim=1] ix_i,
-					np.ndarray[float, ndim=1] Yval, np.ndarray[ind_type, ndim=1] ix_u_val, np.ndarray[ind_type, ndim=1] ix_i_val):
+					np.ndarray[real_t, ndim=1] Y, np.ndarray[ind_type, ndim=1] ix_u, np.ndarray[ind_type, ndim=1] ix_i,
+					np.ndarray[real_t, ndim=1] Yval, np.ndarray[ind_type, ndim=1] ix_u_val, np.ndarray[ind_type, ndim=1] ix_i_val):
 	if (stop_crit == 'diff-norm') or (stop_crit == 'maxiter'):
 		if verbose>0:
 			if has_valset:
@@ -153,24 +142,28 @@ def initialize_parameters(Theta, Beta, random_seed,
 	k = Theta.shape[1]
 	
 	rng = np.random.default_rng(seed = random_seed if random_seed > 0 else None)
-	Theta[:,:] = rng.gamma(a, 1./b_prime, size=(nU, k)).astype(ctypes.c_float)
-	Beta[:, :] = rng.gamma(c, 1./d_prime, size=(nI, k)).astype(ctypes.c_float)
+	Theta[:,:] = rng.gamma(a, 1./b_prime, size=(nU, k)).astype(c_real_t)
+	Beta[:, :] = rng.gamma(c, 1./d_prime, size=(nI, k)).astype(c_real_t)
 
 	### Comment: the code above seems to give worse likelihood in the first iterations, but better
 	### local optima in the end, compared to initializing them like this:
 		# cdef np.ndarray[double, ndim=2] ksi = rng.gamma(a_prime, b_prime/a_prime, size=(nU,1))
-		# Theta[:,:] = rng.gamma(a, 1/ksi, size=(nU, k)).astype(ctypes.c_float)
+		# Theta[:,:] = rng.gamma(a, 1/ksi, size=(nU, k)).astype(c_real_t)
 		# cdef np.ndarray[double, ndim=2] eta = rng.gamma(c_prime, d_prime/c_prime, size=(nI,1))
-		# Beta[:,:] = rng.gamma(c, 1/eta, size=(nI, k)).astype(ctypes.c_float)
+		# Beta[:,:] = rng.gamma(c, 1/eta, size=(nI, k)).astype(c_real_t)
 
-	k_rte = a_prime/b_prime + Theta.sum(axis=1, keepdims=True)
-	t_rte = c_prime/d_prime + Beta.sum(axis=1, keepdims=True)
+	### Comment: the extra randomization here tends to lead to better end results,
+	### but has numeric precision issues when using float type
+	k_rte = a_prime/b_prime + Theta.sum(axis=1, keepdims=True) * rng.uniform(low=.85, high=1.15, size=(nU, 1)).astype(c_real_t)
+	t_rte = c_prime/d_prime + Beta.sum(axis=1, keepdims=True) * rng.uniform(low=.85, high=1.15, size=(nI, 1)).astype(c_real_t)
 
-	Gamma_rte = rng.gamma(a_prime, b_prime/a_prime, size=(nU, 1)).astype(ctypes.c_float) + Beta.sum(axis=0, keepdims=True)
-	Lambda_rte = rng.gamma(c_prime, d_prime/c_prime, size=(nI, 1)).astype(ctypes.c_float) + Theta.sum(axis=0, keepdims=True)
+	Gamma_rte = rng.gamma(a_prime, b_prime/a_prime, size=(nU, 1)).astype(c_real_t) \
+				+ Beta.sum(axis=0, keepdims=True) * rng.uniform(low=.85, high=1.15, size=(nU, 1)).astype(c_real_t)
+	Lambda_rte = rng.gamma(c_prime, d_prime/c_prime, size=(nI, 1)).astype(c_real_t) \
+				+ Theta.sum(axis=0, keepdims=True) * rng.uniform(low=.85, high=1.15, size=(nI, 1)).astype(c_real_t)
 
-	Gamma_shp = Gamma_rte * Theta * rng.uniform(low=.85, high=1.15, size=(nU, k)).astype(ctypes.c_float)
-	Lambda_shp = Lambda_rte * Beta * rng.uniform(low=.85, high=1.15, size=(nI, k)).astype(ctypes.c_float)
+	Gamma_shp = Gamma_rte * Theta * rng.uniform(low=.85, high=1.15, size=(nU, k)).astype(c_real_t)
+	Lambda_shp = Lambda_rte * Beta * rng.uniform(low=.85, high=1.15, size=(nI, k)).astype(c_real_t)
 	np.nan_to_num(Gamma_shp, copy=False)
 	np.nan_to_num(Lambda_shp, copy=False)
 	np.nan_to_num(Gamma_rte, copy=False)
@@ -180,19 +173,19 @@ def initialize_parameters(Theta, Beta, random_seed,
 
 ### Main function
 #################
-def fit_hpf(float a, float a_prime, float b_prime,
-			float c, float c_prime, float d_prime,
-			np.ndarray[float, ndim=1] Y,
+def fit_hpf(real_t a, real_t a_prime, real_t b_prime,
+			real_t c, real_t c_prime, real_t d_prime,
+			np.ndarray[real_t, ndim=1] Y,
 			np.ndarray[ind_type, ndim=1] ix_u,
 			np.ndarray[ind_type, ndim=1] ix_i,
-			np.ndarray[float, ndim=2] Theta,
-			np.ndarray[float, ndim=2] Beta,
-			int maxiter, str stop_crit, int check_every, float stop_thr,
+			np.ndarray[real_t, ndim=2] Theta,
+			np.ndarray[real_t, ndim=2] Beta,
+			int maxiter, str stop_crit, int check_every, real_t stop_thr,
 			users_per_batch, items_per_batch, step_size, int sum_exp_trick,
 			np.ndarray[ind_type, ndim=1] st_ix_u,
 			str save_folder, int random_seed, int verbose,
 			int nthreads, int par_sh, int has_valset,
-			np.ndarray[float, ndim=1] Yval,
+			np.ndarray[real_t, ndim=1] Yval,
 			np.ndarray[ind_type, ndim=1] ix_u_val,
 			np.ndarray[ind_type, ndim=1] ix_i_val,
 			int full_llk, int keep_all_objs, int alloc_full_phi):
@@ -206,27 +199,27 @@ def fit_hpf(float a, float a_prime, float b_prime,
 	if has_valset>0:
 		nYv = Yval.shape[0]
 
-	cdef float k_shp = a_prime + k*a
-	cdef float t_shp = c_prime + k*c
+	cdef real_t k_shp = a_prime + k*a
+	cdef real_t t_shp = c_prime + k*c
 
 	if verbose>0:
 		print("Initializing parameters...")
 
-	cdef np.ndarray[float, ndim=2] Gamma_shp, Gamma_rte, Lambda_shp, Lambda_rte, k_rte, t_rte
+	cdef np.ndarray[real_t, ndim=2] Gamma_shp, Gamma_rte, Lambda_shp, Lambda_rte, k_rte, t_rte
 	Gamma_shp, Gamma_rte, Lambda_shp, Lambda_rte, k_rte, t_rte = initialize_parameters(
 		Theta, Beta, random_seed, a, a_prime, b_prime, c, c_prime, d_prime)
 
-	cdef np.ndarray[float, ndim=2] phi
+	cdef np.ndarray[real_t, ndim=2] phi
 	if ((users_per_batch == 0) and (items_per_batch == 0)) or alloc_full_phi:
 		if verbose>0:
 			print("Allocating Phi matrix...")
-		phi = np.empty((nY, k), dtype = ctypes.c_float)
+		phi = np.empty((nY, k), dtype = c_real_t)
 
 	cdef np.ndarray[ind_type, ndim=1] users_numeration, items_numeration, users_this_batch, items_this_batch, st_ix_id_batch
 	cdef ind_type nUbatch, nIbatch
-	cdef float multiplier_batch, step_prev
+	cdef real_t multiplier_batch, step_prev
 	cdef np.ndarray[ind_type, ndim=1] st_ix_i_copy, ix_u_copy
-	cdef np.ndarray[float, ndim=1] Ycopy
+	cdef np.ndarray[real_t, ndim=1] Ycopy
 	full_updates = True
 	if items_per_batch>0:
 		if verbose:
@@ -242,16 +235,16 @@ def fit_hpf(float a, float a_prime, float b_prime,
 
 	rng = np.random.default_rng(seed = random_seed if random_seed > 0 else None)
 
-	cdef float add_k_rte = a_prime/b_prime
-	cdef float add_t_rte = c_prime/d_prime
+	cdef real_t add_k_rte = a_prime/b_prime
+	cdef real_t add_t_rte = c_prime/d_prime
 	cdef np.ndarray[long_double_type, ndim=1] errs = np.zeros(2, dtype=obj_long_double_type)
 
 	cdef long_double_type last_crit = - LD_HUGE_VAL
-	cdef np.ndarray[float, ndim=2] Theta_prev
+	cdef np.ndarray[real_t, ndim=2] Theta_prev
 	if stop_crit == 'diff-norm':
 		Theta_prev = Theta.copy()
 	else:
-		Theta_prev = np.empty((0,0), dtype = ctypes.c_float)
+		Theta_prev = np.empty((0,0), dtype = c_real_t)
 
 	cdef int one = 1
 	if verbose>0:
@@ -296,7 +289,7 @@ def fit_hpf(float a, float a_prime, float b_prime,
 
 		## Mini-batch epoch (stochastic variational inference)
 		else:
-			step_size_batch = <float> step_size(i)
+			step_size_batch = <real_t> step_size(i)
 			step_prev = 1 - step_size_batch
 			if (users_per_batch>0) and (items_per_batch>0):
 				if ((i+1) % 2) == 0:
@@ -322,7 +315,7 @@ def fit_hpf(float a, float a_prime, float b_prime,
 						items_this_batch = get_unique_items_batch(users_this_batch, st_ix_u, ix_i, nthreads, False)
 					else:
 						items_this_batch, st_ix_id_batch = get_unique_items_batch(users_this_batch, st_ix_u, ix_i, nthreads, True)
-						phi = np.empty((st_ix_id_batch[-1], k), dtype = ctypes.c_float)
+						phi = np.empty((st_ix_id_batch[-1], k), dtype = c_real_t)
 
 					if alloc_full_phi:
 						update_phi_csr(&Gamma_shp[0,0], &Gamma_rte[0,0], &Lambda_shp[0,0], &Lambda_rte[0,0],
@@ -374,7 +367,7 @@ def fit_hpf(float a, float a_prime, float b_prime,
 						users_this_batch = get_unique_items_batch(items_this_batch, st_ix_i_copy, ix_u_copy, nthreads, False)
 					else:
 						users_this_batch, st_ix_id_batch = get_unique_items_batch(items_this_batch, st_ix_i_copy, ix_u_copy, nthreads, True)
-						phi = np.empty((st_ix_id_batch[-1], k), dtype = ctypes.c_float)
+						phi = np.empty((st_ix_id_batch[-1], k), dtype = c_real_t)
 
 					if alloc_full_phi:
 						update_phi_csr(&Lambda_shp[0,0], &Lambda_rte[0,0], &Gamma_shp[0,0], &Gamma_rte[0,0],
@@ -456,21 +449,21 @@ def fit_hpf(float a, float a_prime, float b_prime,
 
 ### Functions for updates without a complete refit
 ##################################################
-def partial_fit(np.ndarray[float, ndim=1] Y_batch,
+def partial_fit(np.ndarray[real_t, ndim=1] Y_batch,
 				np.ndarray[ind_type, ndim=1] ix_u_batch, np.ndarray[ind_type, ndim=1] ix_i_batch,
-				np.ndarray[float, ndim=2] Theta, np.ndarray[float, ndim=2] Beta,
-				np.ndarray[float, ndim=2] Gamma_shp, np.ndarray[float, ndim=2] Gamma_rte,
-				np.ndarray[float, ndim=2] Lambda_shp, np.ndarray[float, ndim=2] Lambda_rte,
-				np.ndarray[float, ndim=2] k_rte, np.ndarray[float, ndim=2] t_rte,
-				float add_k_rte, float add_t_rte, float a, float c,
-				float k_shp, float t_shp, ind_type k,
+				np.ndarray[real_t, ndim=2] Theta, np.ndarray[real_t, ndim=2] Beta,
+				np.ndarray[real_t, ndim=2] Gamma_shp, np.ndarray[real_t, ndim=2] Gamma_rte,
+				np.ndarray[real_t, ndim=2] Lambda_shp, np.ndarray[real_t, ndim=2] Lambda_rte,
+				np.ndarray[real_t, ndim=2] k_rte, np.ndarray[real_t, ndim=2] t_rte,
+				real_t add_k_rte, real_t add_t_rte, real_t a, real_t c,
+				real_t k_shp, real_t t_shp, ind_type k,
 				users_this_batch, items_this_batch, par_sh,
-				float step_size_batch, float multiplier_batch,
+				real_t step_size_batch, real_t multiplier_batch,
 				int nthreads, user_batch
 				):
 	cdef ind_type nYbatch = Y_batch.shape[0]
-	cdef np.ndarray[float, ndim=2] phi = np.empty((nYbatch, k), dtype = ctypes.c_float)
-	cdef float step_prev = 1 - step_size_batch
+	cdef np.ndarray[real_t, ndim=2] phi = np.empty((nYbatch, k), dtype = c_real_t)
+	cdef real_t step_prev = 1 - step_size_batch
 	update_phi(&Gamma_shp[0,0], &Gamma_rte[0,0], &Lambda_shp[0,0], &Lambda_rte[0,0],
 				  &phi[0,0], &Y_batch[0], k, 1,
 				  &ix_u_batch[0], &ix_i_batch[0], nYbatch, nthreads)
@@ -509,31 +502,31 @@ def partial_fit(np.ndarray[float, ndim=1] Y_batch,
 	t_rte[:,:] = step_size_batch * (add_t_rte + Beta.sum(axis=1, keepdims=True)) + step_prev * t_rte
 
 
-def calc_user_factors(float a, float a_prime, float b_prime,
-					  float c, float c_prime, float d_prime,
-					  np.ndarray[float, ndim=1] Y,
+def calc_user_factors(real_t a, real_t a_prime, real_t b_prime,
+					  real_t c, real_t c_prime, real_t d_prime,
+					  np.ndarray[real_t, ndim=1] Y,
 					  np.ndarray[ind_type, ndim=1] ix_i,
-					  np.ndarray[float, ndim=1] Theta,
-					  np.ndarray[float, ndim=2] Beta,
-					  np.ndarray[float, ndim=2] Lambda_shp,
-					  np.ndarray[float, ndim=2] Lambda_rte,
+					  np.ndarray[real_t, ndim=1] Theta,
+					  np.ndarray[real_t, ndim=2] Beta,
+					  np.ndarray[real_t, ndim=2] Lambda_shp,
+					  np.ndarray[real_t, ndim=2] Lambda_rte,
 					  ind_type nY, ind_type k, int maxiter, int nthreads, int random_seed,
-					  float stop_thr, int return_all):
+					  real_t stop_thr, int return_all):
 	
 	## initializing parameters
-	cdef float k_shp = a_prime + k*a
-	cdef float t_shp = c_prime + k*c
+	cdef real_t k_shp = a_prime + k*a
+	cdef real_t t_shp = c_prime + k*c
 	rng = np.random.default_rng(seed = random_seed if random_seed > 0 else None)
-	Theta[:] = rng.gamma(a, 1/b_prime, size = k).astype(ctypes.c_float)
-	cdef float k_rte = b_prime + Theta.sum()
-	cdef np.ndarray[float, ndim=1] Gamma_rte = rng.gamma(a_prime, b_prime/a_prime, size=1).astype(ctypes.c_float) + \
+	Theta[:] = rng.gamma(a, 1/b_prime, size = k).astype(c_real_t)
+	cdef real_t k_rte = b_prime + Theta.sum()
+	cdef np.ndarray[real_t, ndim=1] Gamma_rte = rng.gamma(a_prime, b_prime/a_prime, size=1).astype(c_real_t) + \
 											Beta.sum(axis=0)
-	cdef np.ndarray[float, ndim=1] Gamma_shp = Gamma_rte * Theta * rng.uniform(low=.85, high=1.15, size=k).astype(ctypes.c_float)
+	cdef np.ndarray[real_t, ndim=1] Gamma_shp = Gamma_rte * Theta * rng.uniform(low=.85, high=1.15, size=k).astype(c_real_t)
 	np.nan_to_num(Gamma_shp, copy=False)
 	np.nan_to_num(Gamma_rte, copy=False)
-	cdef np.ndarray[float, ndim=2] phi = np.empty((nY, k), dtype = ctypes.c_float)
-	cdef float add_k_rte = a_prime/b_prime
-	cdef np.ndarray[float, ndim=1] Theta_prev = Theta.copy()
+	cdef np.ndarray[real_t, ndim=2] phi = np.empty((nY, k), dtype = c_real_t)
+	cdef real_t add_k_rte = a_prime/b_prime
+	cdef np.ndarray[real_t, ndim=1] Theta_prev = Theta.copy()
 	cdef np.ndarray[ind_type, ndim=1] u_repeated = np.zeros(nY, dtype=obj_ind_type)
 
 	## running the loop
@@ -558,8 +551,8 @@ def calc_user_factors(float a, float a_prime, float b_prime,
 
 ### External llk function
 #########################
-def calc_llk(np.ndarray[float, ndim=1] Y, np.ndarray[ind_type, ndim=1] ix_u, np.ndarray[ind_type, ndim=1] ix_i,
-			 np.ndarray[float, ndim=2] Theta, np.ndarray[float, ndim=2] Beta, ind_type k, int nthreads, int full_llk):
+def calc_llk(np.ndarray[real_t, ndim=1] Y, np.ndarray[ind_type, ndim=1] ix_u, np.ndarray[ind_type, ndim=1] ix_i,
+			 np.ndarray[real_t, ndim=2] Theta, np.ndarray[real_t, ndim=2] Beta, ind_type k, int nthreads, int full_llk):
 	cdef np.ndarray[long_double_type, ndim=1] o = np.zeros(1, dtype=obj_long_double_type)
 	llk_plus_rmse(&Theta[0,0], &Beta[0,0],
 			 &Y[0], &ix_u[0], &ix_i[0],
@@ -571,10 +564,10 @@ def calc_llk(np.ndarray[float, ndim=1] Y, np.ndarray[ind_type, ndim=1] ix_u, np.
 
 ### External prediction function
 ################################
-def predict_arr(np.ndarray[float, ndim=2] M1, np.ndarray[float, ndim=2] M2, np.ndarray[ind_type, ndim=1] ix_u, np.ndarray[ind_type, ndim=1] ix_i, int nthreads):
+def predict_arr(np.ndarray[real_t, ndim=2] M1, np.ndarray[real_t, ndim=2] M2, np.ndarray[ind_type, ndim=1] ix_u, np.ndarray[ind_type, ndim=1] ix_i, int nthreads):
 	cdef ind_type n = ix_u.shape[0]
 	cdef int k = M1.shape[1]
-	cdef np.ndarray[float, ndim=1] out = np.zeros(n, dtype = ctypes.c_float)
+	cdef np.ndarray[real_t, ndim=1] out = np.zeros(n, dtype = c_real_t)
 	predict_multiple(&out[0], &M1[0,0], &M2[0,0], &ix_u[0], &ix_i[0], n, k, nthreads)
 	return out
 
@@ -584,12 +577,12 @@ def predict_arr(np.ndarray[float, ndim=2] M1, np.ndarray[float, ndim=2] M2, np.n
 @cython.wraparound(False)
 @cython.nonecheck(False)
 @cython.cdivision(True)
-cdef void update_phi(float* G_sh, float* G_rt, float* L_sh, float* L_rt,
-					 float* phi, float* Y, ind_type k, int sum_exp_trick,
+cdef void update_phi(real_t* G_sh, real_t* G_rt, real_t* L_sh, real_t* L_rt,
+					 real_t* phi, real_t* Y, ind_type k, int sum_exp_trick,
 					 ind_type* ix_u, ind_type* ix_i, ind_type nY, int nthreads) nogil:
 	cdef ind_type uid, iid
 	cdef ind_type uid_st, iid_st, phi_st
-	cdef float sumphi, maxval
+	cdef real_t sumphi, maxval
 	cdef ind_type i, j
 
 	if sum_exp_trick:
@@ -597,7 +590,7 @@ cdef void update_phi(float* G_sh, float* G_rt, float* L_sh, float* L_rt,
 			uid = ix_u[i]
 			iid = ix_i[i]
 			sumphi = 0
-			maxval = - HUGE_VALF
+			maxval = - HUGE_VAL_T
 			uid_st = k*uid
 			iid_st = k*iid
 			phi_st = i*k
@@ -606,7 +599,7 @@ cdef void update_phi(float* G_sh, float* G_rt, float* L_sh, float* L_rt,
 				if phi[phi_st + j] > maxval:
 					maxval = phi[phi_st + j]
 			for j in range(k):
-				phi[phi_st + j] = expf(phi[phi_st + j] - maxval)
+				phi[phi_st + j] = exp_t(phi[phi_st + j] - maxval)
 				sumphi += phi[phi_st + j]
 			for j in range(k):
 				phi[phi_st + j] *= Y[i]/sumphi
@@ -630,8 +623,8 @@ cdef void update_phi(float* G_sh, float* G_rt, float* L_sh, float* L_rt,
 @cython.wraparound(False)
 @cython.nonecheck(False)
 @cython.cdivision(True)
-cdef void update_G_n_L_sh_par(float* G_sh, float* L_sh,
-						  float* phi, ind_type k,
+cdef void update_G_n_L_sh_par(real_t* G_sh, real_t* L_sh,
+						  real_t* phi, ind_type k,
 						  ind_type* ix_u, ind_type* ix_i, ind_type nY, int nthreads) nogil:
 	cdef ind_type i, j
 	for i in prange(nY, schedule='static', num_threads=nthreads):
@@ -644,8 +637,8 @@ cdef void update_G_n_L_sh_par(float* G_sh, float* L_sh,
 @cython.wraparound(False)
 @cython.nonecheck(False)
 @cython.cdivision(True)
-cdef void update_G_n_L_sh(float* G_sh, float* L_sh,
-						  float* phi, ind_type k,
+cdef void update_G_n_L_sh(real_t* G_sh, real_t* L_sh,
+						  real_t* phi, ind_type k,
 						  ind_type* ix_u, ind_type* ix_i, ind_type nY) nogil:
 	cdef ind_type i, j
 	for i in range(nY):
@@ -657,36 +650,36 @@ cdef void update_G_n_L_sh(float* G_sh, float* L_sh,
 @cython.wraparound(False)
 @cython.nonecheck(False)
 @cython.cdivision(True)
-cdef void llk_plus_rmse(float* T, float* B, float* Y,
+cdef void llk_plus_rmse(real_t* T, real_t* B, real_t* Y,
 						ind_type* ix_u, ind_type* ix_i, ind_type nY, ind_type kszt,
 						long_double_type* out, int nthreads, int add_mse, int full_llk) nogil:
 	cdef ind_type i
 	cdef int one = 1
-	cdef float yhat
+	cdef real_t yhat
 	cdef long_double_type out1 = 0
 	cdef long_double_type out2 =  0
 	cdef int k = <int> kszt
 	if add_mse:
 		if full_llk:
 			for i in prange(nY, schedule='static', num_threads=nthreads):
-				yhat = sdot(&k, &T[ix_u[i] * kszt], &one, &B[ix_i[i] * kszt], &one)
-				out1 += Y[i]*log(yhat) - loggamma(Y[i] + 1)
+				yhat = tdot(&k, &T[ix_u[i] * kszt], &one, &B[ix_i[i] * kszt], &one)
+				out1 += Y[i]*log(yhat) - loggamma(Y[i] + 1.)
 				out2 += (Y[i] - yhat)**2
 		else:
 			for i in prange(nY, schedule='static', num_threads=nthreads):
-				yhat = sdot(&k, &T[ix_u[i] * kszt], &one, &B[ix_i[i] * kszt], &one)
-				out1 += Y[i]*logf(yhat)
+				yhat = tdot(&k, &T[ix_u[i] * kszt], &one, &B[ix_i[i] * kszt], &one)
+				out1 += Y[i]*log_t(yhat)
 				out2 += (Y[i] - yhat)**2
 		out[0] = out1
 		out[1] = out2
 	else:
 		if full_llk:
 			for i in prange(nY, schedule='static', num_threads=nthreads):
-				out1 += Y[i]*log(sdot(&k, &T[ix_u[i] * kszt], &one, &B[ix_i[i] * kszt], &one)) - loggamma(Y[i] + 1)
+				out1 += Y[i]*log(tdot(&k, &T[ix_u[i] * kszt], &one, &B[ix_i[i] * kszt], &one)) - loggamma(Y[i] + 1.)
 			out[0] = out1
 		else:
 			for i in prange(nY, schedule='static', num_threads=nthreads):
-				out1 += Y[i]*logf(sdot(&k, &T[ix_u[i] * kszt], &one, &B[ix_i[i] * kszt], &one))
+				out1 += Y[i]*log_t(tdot(&k, &T[ix_u[i] * kszt], &one, &B[ix_i[i] * kszt], &one))
 			out[0] = out1
 	### Comment: adding += directly to *out triggers compiler optimizations that produce
 	### different (and wrong) results across different runs.
@@ -695,13 +688,13 @@ cdef void llk_plus_rmse(float* T, float* B, float* Y,
 @cython.wraparound(False)
 @cython.nonecheck(False)
 @cython.cdivision(True)
-cdef void update_phi_csr(float* G_sh, float* G_rt, float* L_sh, float* L_rt,
-						 float* phi, float* Y, ind_type* ix_i, ind_type* st_ix_u, ind_type* u_arr,
+cdef void update_phi_csr(real_t* G_sh, real_t* G_rt, real_t* L_sh, real_t* L_rt,
+						 real_t* phi, real_t* Y, ind_type* ix_i, ind_type* st_ix_u, ind_type* u_arr,
 						 ind_type k, ind_type nU, int nthreads) nogil:
 	cdef ind_type u, i, j
 	cdef ind_type uid, n_uid
 	cdef ind_type st_G, st_L, phi_st, y_ix
-	cdef float sumrow, maxval
+	cdef real_t sumrow, maxval
 	for u in prange(nU, schedule='dynamic', num_threads=nthreads):
 		uid = u_arr[u]
 		n_uid = st_ix_u[uid + 1] - st_ix_u[uid]
@@ -711,13 +704,13 @@ cdef void update_phi_csr(float* G_sh, float* G_rt, float* L_sh, float* L_rt,
 			st_L = k * ix_i[y_ix]
 			phi_st = y_ix * k
 			sumrow = 0
-			maxval = - HUGE_VALF
+			maxval = - HUGE_VAL_T
 			for j in range(k):
-				phi[phi_st + j] = psi(G_sh[st_G + j]) - log(G_rt[st_G + j]) +psi(L_sh[st_L + j]) - log(L_rt[st_L + j])
+				phi[phi_st + j] = psi(G_sh[st_G + j]) - log(G_rt[st_G + j]) + psi(L_sh[st_L + j]) - log(L_rt[st_L + j])
 				if phi[phi_st + j] > maxval:
 					maxval = phi[phi_st + j]
 			for j in range(k):
-				phi[phi_st + j] = expf(phi[phi_st + j] - maxval)
+				phi[phi_st + j] = exp_t(phi[phi_st + j] - maxval)
 				sumrow += phi[phi_st + j]
 			for j in range(k):
 				phi[phi_st + j] *= Y[y_ix] / sumrow
@@ -726,13 +719,13 @@ cdef void update_phi_csr(float* G_sh, float* G_rt, float* L_sh, float* L_rt,
 @cython.wraparound(False)
 @cython.nonecheck(False)
 @cython.cdivision(True)
-cdef void update_phi_csr_small(float* G_sh, float* G_rt, float* L_sh, float* L_rt,
-						 	   float* phi, float* Y, ind_type* ix_i, ind_type* st_ix_u, ind_type* u_arr,
+cdef void update_phi_csr_small(real_t* G_sh, real_t* G_rt, real_t* L_sh, real_t* L_rt,
+						 	   real_t* phi, real_t* Y, ind_type* ix_i, ind_type* st_ix_u, ind_type* u_arr,
 						 	   ind_type* st_phi_u, ind_type k, ind_type nU, int nthreads) nogil:
 	cdef ind_type u, i, j
 	cdef ind_type uid, n_uid
 	cdef ind_type st_G, st_L, phi_st, y_ix
-	cdef float sumrow, maxval
+	cdef real_t sumrow, maxval
 	for u in prange(nU, schedule='dynamic', num_threads=nthreads):
 		uid = u_arr[u]
 		n_uid = st_ix_u[uid + 1] - st_ix_u[uid]
@@ -742,13 +735,13 @@ cdef void update_phi_csr_small(float* G_sh, float* G_rt, float* L_sh, float* L_r
 			st_L = k * ix_i[y_ix]
 			phi_st = (st_phi_u[u] + i) * k
 			sumrow = 0
-			maxval = - HUGE_VALF
+			maxval = - HUGE_VAL_T
 			for j in range(k):
-				phi[phi_st + j] = psi(G_sh[st_G + j]) - log(G_rt[st_G + j]) +psi(L_sh[st_L + j]) - log(L_rt[st_L + j])
+				phi[phi_st + j] = psi(G_sh[st_G + j]) - log(G_rt[st_G + j]) + psi(L_sh[st_L + j]) - log(L_rt[st_L + j])
 				if phi[phi_st + j] > maxval:
 					maxval = phi[phi_st + j]
 			for j in range(k):
-				phi[phi_st + j] = expf(phi[phi_st + j] - maxval)
+				phi[phi_st + j] = exp_t(phi[phi_st + j] - maxval)
 				sumrow += phi[phi_st + j]
 			for j in range(k):
 				phi[phi_st + j] *= Y[y_ix] / sumrow
@@ -757,8 +750,8 @@ cdef void update_phi_csr_small(float* G_sh, float* G_rt, float* L_sh, float* L_r
 @cython.wraparound(False)
 @cython.nonecheck(False)
 @cython.cdivision(True)
-cdef void update_G_n_L_sh_csr(float* G_sh, float* L_sh,
-							  float* phi, ind_type k, ind_type nU, int nthreads,
+cdef void update_G_n_L_sh_csr(real_t* G_sh, real_t* L_sh,
+							  real_t* phi, ind_type k, ind_type nU, int nthreads,
 							  ind_type* ix_i, ind_type* st_ix_u, ind_type* u_arr) nogil:
 	cdef ind_type u, i, j
 	cdef ind_type uid, n_uid
@@ -778,8 +771,8 @@ cdef void update_G_n_L_sh_csr(float* G_sh, float* L_sh,
 @cython.wraparound(False)
 @cython.nonecheck(False)
 @cython.cdivision(True)
-cdef void update_G_n_L_sh_csr_small(float* G_sh, float* L_sh, ind_type* st_phi_u,
-							  		float* phi, ind_type k, ind_type nU, int nthreads,
+cdef void update_G_n_L_sh_csr_small(real_t* G_sh, real_t* L_sh, ind_type* st_phi_u,
+							  		real_t* phi, ind_type k, ind_type nU, int nthreads,
 							  		ind_type* ix_i, ind_type* st_ix_u, ind_type* u_arr) nogil:
 	cdef ind_type u, i, j
 	cdef ind_type uid, n_uid
@@ -826,32 +819,32 @@ cdef void get_i_batch_pass2(ind_type* st_ix_u, ind_type* st_ix_out, ind_type* ou
 @cython.wraparound(False)
 @cython.nonecheck(False)
 @cython.cdivision(True)
-cdef void predict_multiple(float* out, float* M1, float* M2, ind_type* ix_u, ind_type* ix_i, ind_type n, int k, int nthreads) nogil:
+cdef void predict_multiple(real_t* out, real_t* M1, real_t* M2, ind_type* ix_u, ind_type* ix_i, ind_type n, int k, int nthreads) nogil:
 	
 	cdef int one = 1
 	cdef ind_type kszt = k
 	cdef ind_type i
 	for i in prange(n, schedule='static', num_threads=nthreads):
-		out[i] = sdot(&k, &M1[ix_u[i] * kszt], &one, &M2[ix_i[i] * kszt], &one)
+		out[i] = tdot(&k, &M1[ix_u[i] * kszt], &one, &M2[ix_i[i] * kszt], &one)
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.nonecheck(False)
 @cython.cdivision(True)
-cdef long_double_type sum_prediction(float* M1, float* M2, ind_type* ix_u, ind_type* ix_i, ind_type n, int k, int nthreads) nogil:
+cdef long_double_type sum_prediction(real_t* M1, real_t* M2, ind_type* ix_u, ind_type* ix_i, ind_type n, int k, int nthreads) nogil:
 	
 	cdef long_double_type out = 0
 	cdef int one = 1
 	cdef ind_type kszt = k
 	cdef ind_type i
 	for i in prange(n, schedule='static', num_threads=nthreads):
-		out += sdot(&k, &M1[ix_u[i] * kszt], &one, &M2[ix_i[i] * kszt], &one)
+		out += tdot(&k, &M1[ix_u[i] * kszt], &one, &M2[ix_i[i] * kszt], &one)
 	return out
 
 
 ### Printing output
 ###################
-def print_norm_diff(int it, int check_every, float normdiff):
+def print_norm_diff(int it, int check_every, real_t normdiff):
 	print("Iteration %d | Norm(Theta_{%d} - Theta_{%d}): %.5f" % (it, it, it-check_every, normdiff))
 
 def print_llk_iter(int it, long long llk, double rmse, int has_valset):
