@@ -1156,7 +1156,7 @@ class HPF:
 			else:
 				if self.reindex:
 					new_id = self.user_mapping_.shape[0]
-					self.user_mapping_ = np.r_[self.user_mapping_, user_id]
+					self.user_mapping_ = np.r_[self.user_mapping_, np.array(user_id)]
 					if self.produce_dicts:
 						self.user_dict_[user_id] = new_id
 				self.Theta = np.r_[self.Theta, Theta.reshape((1, self.k))]
@@ -1175,7 +1175,7 @@ class HPF:
 				self.seen = np.r_[self.seen[:user_id], counts_df.ItemId.values, self.seen[(user_id + 1):]]
 				self._st_ix_user[(user_id + 1):] += self._n_seen_by_user[user_id] - n_seen_by_user_before
 			else:
-				self._n_seen_by_user = np.r_[self._n_seen_by_user, counts_df.shape[0]]
+				self._n_seen_by_user = np.r_[self._n_seen_by_user, np.array(counts_df.shape[0])]
 				self._st_ix_user = np.r_[self._st_ix_user, self.seen.shape[0]]
 				self.seen = np.r_[self.seen, counts_df.ItemId.values]
 
