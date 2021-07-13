@@ -12,6 +12,10 @@ For a similar package using also item/user side information see [ctpfrec](https:
 
 For a non-Bayesian version which can produce sparse factors see [poismf](https://github.com/david-cortes/poismf).
 
+** *
+
+*Note: this package can also be used from within [LensKit](https://github.com/lenskit/lkpy), which adds functionalities such as cross-validation and calculation of recommendation quality metrics.*
+
 ## Model description
 
 The model consists in producing a non-negative low-rank matrix factorization of counts data (such as number of times each user played each song in some internet service) `Y ~= UV'`, produced by a generative model as follows:
