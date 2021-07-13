@@ -201,7 +201,7 @@ class HPF:
 	"""
 	def __init__(self, k=30, a=0.3, a_prime=0.3, b_prime=1.0,
 				 c=0.3, c_prime=0.3, d_prime=1.0, ncores=-1,
-				 stop_crit='train-llk', check_every=10, stop_thr=1e-3,
+				 stop_crit='maxiter', check_every=10, stop_thr=1e-3,
 				 users_per_batch=None, items_per_batch=None, step_size=lambda x: 1/np.sqrt(x+2),
 				 maxiter=100, use_float=True, reindex=True, verbose=True,
 				 random_seed=None, allow_inconsistent_math=False, full_llk=False,
