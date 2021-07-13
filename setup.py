@@ -5,7 +5,6 @@ try:
 except:
 	from distutils.core import setup
 	from distutils.extension import Extension
-from Cython.Build import cythonize
 from Cython.Distutils import build_ext
 import numpy
 import sys, os
@@ -58,7 +57,7 @@ setup(
 	 'scipy',
 	 'cython'
 ],
-	version = '0.2.3.4',
+	version = '0.2.4',
 	description = 'Hierarchical Poisson matrix factorization for recommender systems',
 	author = 'David Cortes',
 	author_email = 'david.cortes.rivera@gmail.com',

@@ -139,8 +139,6 @@ If passing `reindex=True`, all user and item IDs that you pass to `.fit` will be
 
 For a more detailed example, see the IPython notebook [recommending songs with EchoNest MillionSong dataset](http://nbviewer.jupyter.org/github/david-cortes/hpfrec/blob/master/example/hpfrec_echonest.ipynb) illustrating its usage with the EchoNest TasteProfile dataset.
 
-This package contains only functionality related to fitting this model. For general evaluation metrics for recommendations on implicit data see other packages such as [LensKit](https://github.com/lenskit/lkpy).
-
 ## Documentation
 
 Documentation is available at readthedocs: [http://hpfrec.readthedocs.io](http://hpfrec.readthedocs.io/en/latest/)

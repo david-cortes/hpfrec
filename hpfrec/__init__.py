@@ -916,29 +916,35 @@ class HPF:
 
 	def _initialize_extra_users(self, n, seed):
 		cython_loops = cython_loops_float if self.use_float else cython_loops_double
+		c_real_t = ctypes.c_float if self.use_float else ctypes.c_double
 		rng = np.random.default_rng(seed = seed if seed > 0 else None)
 
-		new_Theta = rng.gamma(self.a, 1./self.b_prime, size=(n, self.k)).astype(cython_loops.c_real_t)
+		new_Gamma_shp = self.a_prime + 0.01 * rng.random(size=(n, self.k), dtype=c_real_t)
+		new_Gamma_rte = self.a_prime + 0.01 * rng.random(size=(n, self.k), dtype=c_real_t)
+		new_Theta = new_Gamma_shp / new_Gamma_rte
+		new_k_rte = np.empty((n,1), dtype=c_real_t)
+		new_k_rte[:,:] = self.b_prime
+		
+		self.k_rte = np.r_[self.k_rte, new_k_rte]
 		self.Theta = np.r_[self.Theta, new_Theta]
-		self.k_rte = np.r_[self.k_rte, b_prime + new_Theta.sum(axis=1, keepdims=True)]
-		new_Gamma_rte = rng.gamma(self.a_prime, self.b_prime/self.a_prime, size=(n, 1)).astype(cython_loops.c_real_t) \
-							+ self.Beta.sum(axis=0, keepdims=True)
 		self.Gamma_rte = np.r_[self.Gamma_rte, new_Gamma_rte]
-		self.Gamma_shp = np.r_[self.Gamma_shp, new_Gamma_rte * new_Theta * \
-								rng.uniform(low=.85, high=1.15, size=(n, self.k)).astype(cython_loops.c_real_t)]
+		self.Gamma_shp = np.r_[self.Gamma_shp, new_Gamma_shp]
 
 	def _initialize_extra_items(self, n, seed):
 		cython_loops = cython_loops_float if self.use_float else cython_loops_double
+		c_real_t = ctypes.c_float if self.use_float else ctypes.c_double
 		rng = np.random.default_rng(seed = seed if seed > 0 else None)
 
-		new_Beta = rng.gamma(self.c, 1./self.d_prime, size=(n, self.k)).astype(cython_loops.c_real_t)
+		new_Lambda_shp = self.c_prime + 0.01 * rng.random(size=(n, self.k), dtype=c_real_t)
+		new_Lambda_rte = self.c_prime + 0.01 * rng.random(size=(n, self.k), dtype=c_real_t)
+		new_Beta = new_Lambda_shp / new_Lambda_rte
+		new_t_rte = np.empty((n,1), dtype=c_real_t)
+		new_t_rte[:,:] = self.d_prime
+		
+		self.t_rte = np.r_[self.t_rte, new_t_rte]
 		self.Beta = np.r_[self.Beta, new_Beta]
-		self.t_rte = np.r_[self.t_rte, self.d_prime + new_Beta.sum(axis=1, keepdims=True)]
-		new_Lambda_rte = rng.gamma(self.c_prime, self.d_prime/self.c_prime, size=(n, 1)).astype(cython_loops.c_real_t) \
-							+ self.Theta.sum(axis=0, keepdims=True)
 		self.Lambda_rte = np.r_[self.Lambda_rte, new_Lambda_rte]
-		self.Lambda_shp = np.r_[self.Lambda_shp, new_Lambda_rte * new_Beta * \
-									 rng.uniform(low=.85, high=1.15, size=(n, self.k)).astype(cython_loops.c_real_t)]
+		self.Lambda_shp = np.r_[self.Lambda_shp, new_Lambda_shp]
 
 	def _check_input_predict_factors(self, ncores, random_seed, stop_thr, maxiter):
 
@@ -977,10 +983,6 @@ class HPF:
 		Note
 		----
 		This function only works with one user at a time.
-
-		Note
-		----
-		This function is prone to producing all NaNs values.
 
 		Parameters
 		----------
@@ -1056,10 +1058,6 @@ class HPF:
 		Note
 		----
 		For betters results, refit the model again from scratch.
-
-		Note
-		----
-		This function is prone to producing all NaNs values.
 
 		Parameters
 		----------

@@ -134,40 +134,29 @@ def eval_after_term(stop_crit, int verbose, int nthreads, int full_llk, ind_type
 #####################################
 def initialize_parameters(Theta, Beta, random_seed,
 						  a, a_prime, b_prime, c, c_prime, d_prime):
-	### Comment: I'm not entirely sure how to initialize the variables according to the prior, and the
-	### initialization here differs from the implementation of the paper's author.
+	### Comment: this is the initialization that was used in the original HPF code.
+	### It doesn't exactly follow the paper's instructions about 'initializing according to prior',
+	### but it gives better results than other initializations.
 
 	nU = Theta.shape[0]
 	nI = Beta.shape[0]
 	k = Theta.shape[1]
 	
 	rng = np.random.Generator(np.random.MT19937(seed = random_seed if random_seed > 0 else None))
-	Theta[:,:] = rng.gamma(a, 1./b_prime, size=(nU, k)).astype(c_real_t)
-	Beta[:, :] = rng.gamma(c, 1./d_prime, size=(nI, k)).astype(c_real_t)
+	
+	k_rte = np.empty((nU,1), dtype=c_real_t)
+	t_rte = np.empty((nI,1), dtype=c_real_t)
+	k_rte[:,:] = b_prime
+	t_rte[:,:] = d_prime
 
-	### Comment: the code above seems to give worse likelihood in the first iterations, but better
-	### local optima in the end, compared to initializing them like this:
-		# cdef np.ndarray[double, ndim=2] ksi = rng.gamma(a_prime, b_prime/a_prime, size=(nU,1))
-		# Theta[:,:] = rng.gamma(a, 1/ksi, size=(nU, k)).astype(c_real_t)
-		# cdef np.ndarray[double, ndim=2] eta = rng.gamma(c_prime, d_prime/c_prime, size=(nI,1))
-		# Beta[:,:] = rng.gamma(c, 1/eta, size=(nI, k)).astype(c_real_t)
+	Gamma_rte = a_prime + 0.01 * rng.random(size=(nU, k), dtype=c_real_t)
+	Lambda_rte = c_prime + 0.01 * rng.random(size=(nI, k), dtype=c_real_t)
 
-	### Comment: the extra randomization here tends to lead to better end results,
-	### but has numeric precision issues when using float type
-	k_rte = a_prime/b_prime + Theta.sum(axis=1, keepdims=True) * rng.uniform(low=.85, high=1.15, size=(nU, 1)).astype(c_real_t)
-	t_rte = c_prime/d_prime + Beta.sum(axis=1, keepdims=True) * rng.uniform(low=.85, high=1.15, size=(nI, 1)).astype(c_real_t)
+	Gamma_shp = a_prime + 0.01 * rng.random(size=(nU, k), dtype=c_real_t)
+	Lambda_shp = c_prime + 0.01 * rng.random(size=(nI, k), dtype=c_real_t)
 
-	Gamma_rte = rng.gamma(a_prime, b_prime/a_prime, size=(nU, 1)).astype(c_real_t) \
-				+ Beta.sum(axis=0, keepdims=True) * rng.uniform(low=.85, high=1.15, size=(nU, 1)).astype(c_real_t)
-	Lambda_rte = rng.gamma(c_prime, d_prime/c_prime, size=(nI, 1)).astype(c_real_t) \
-				+ Theta.sum(axis=0, keepdims=True) * rng.uniform(low=.85, high=1.15, size=(nI, 1)).astype(c_real_t)
-
-	Gamma_shp = Gamma_rte * Theta * rng.uniform(low=.85, high=1.15, size=(nU, k)).astype(c_real_t)
-	Lambda_shp = Lambda_rte * Beta * rng.uniform(low=.85, high=1.15, size=(nI, k)).astype(c_real_t)
-	np.nan_to_num(Gamma_shp, copy=False)
-	np.nan_to_num(Lambda_shp, copy=False)
-	np.nan_to_num(Gamma_rte, copy=False)
-	np.nan_to_num(Lambda_rte, copy=False)
+	Theta[:,:] = Gamma_shp / Gamma_rte
+	Beta[:,:] = Lambda_shp / Lambda_rte
 
 	return Gamma_shp, Gamma_rte, Lambda_shp, Lambda_rte, k_rte, t_rte
 
