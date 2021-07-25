@@ -1,6 +1,6 @@
 import pandas as pd, numpy as np
 import multiprocessing, os, warnings
-from . import cython_loops_float, cython_loops_double
+from . import cython_loops_float, cython_loops_double, _check_openmp
 import ctypes, types, inspect
 from scipy.sparse import coo_matrix, csr_matrix
 pd.options.mode.chained_assignment = None
@@ -244,6 +244,13 @@ class HPF:
 			ncores = 1
 		assert ncores>0
 		assert isinstance(ncores, int)
+
+		if (ncores > 1) and not (_check_openmp.get()):
+			msg_omp  = "Attempting to use more than 1 thread, but "
+			msg_omp += "package was built without multi-threading "
+			msg_omp += "support - see the project's GitHub page for "
+			msg_omp += "more information."
+			warnings.warn(msg_omp)
 
 		if random_seed is not None:
 			assert isinstance(random_seed, int)

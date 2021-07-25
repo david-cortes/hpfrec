@@ -38,24 +38,21 @@ Package is available on PyPI, can be installed with:
 pip install hpfrec
 ```
 
-As it contains Cython code, it requires a C compiler. In Windows, this usually means it requires a Visual Studio Build Tools installation (with MSVC140 component for `conda`) (or MinGW + GCC), and if using Anaconda, might also require configuring it to use said Visual Studio instead of MinGW, otherwise the installation from `pip` might fail. For more details see this guide:
-[Cython Extensions On Windows](https://github.com/cython/cython/wiki/CythonExtensionsOnWindows)
-
-On Python 2.7 on Windows, it might additionally require installing extra Visual Basic modules (untested).
-
-On Linux, the `pip` install should work out-of-the-box, as long as the system has `gcc`.
-
-**Note for macOS users:** on macOS, the Python version of this package will compile **without** multi-threading capabilities. This is due to default apple's redistribution of clang not providing OpenMP modules, and aliasing it to gcc which causes confusions in build scripts. If you have a non-apple version of clang with the OpenMP modules, or if you have gcc installed, you can compile this package with multi-threading enabled by setting up an environment variable `ENABLE_OMP=1`:
-```
-export ENABLE_OMP=1
-pip install hpfrec
-```
-(Alternatively, can also pass argument `enable-omp` to the setup.py file: `python setup.py install enable-omp`)
-
-**Note2:** the setup script uses a PEP517 environment, which means it will create an isolated virtual environment, install its build dependencies there, compile, and then copy to the actual environment. This can causes issues - for example, if one has NumPy<1.20 and the build environment installs NumPy>=1.20, there will be a binary incompatibility which will make the package fail to import. To avoid PEP517, install with:
+Or if that fails:
 ```
 pip install --no-use-pep517 hpfrec
 ```
+
+**Note for macOS users:** on macOS, the Python version of this package might compile **without** multi-threading capabilities. In order to enable multi-threading support, first install OpenMP:
+```
+brew install libomp
+```
+And then reinstall this package: `pip install --force-reinstall hpfrec`.
+
+
+As it contains Cython code, it requires a C compiler. In Windows, this usually means it requires a Visual Studio Build Tools installation (with MSVC140 component for `conda`) (or MinGW + GCC), and if using Anaconda, might also require configuring it to use said Visual Studio instead of MinGW, otherwise the installation from `pip` might fail. For more details see this guide:
+[Cython Extensions On Windows](https://github.com/cython/cython/wiki/CythonExtensionsOnWindows)
+
 
 ## Sample usage
 

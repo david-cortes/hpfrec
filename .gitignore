@@ -17,6 +17,10 @@ hpfrec.egg-info/
     *.*
 	
 *.so
+*.o
+*.out
+*.exe
+*.dylib
 
 hpfrec/
 	*.so
