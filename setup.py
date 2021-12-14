@@ -19,10 +19,11 @@ class build_ext_subclass( build_ext ):
 	def build_extensions(self):
 		if self.compiler.compiler_type == 'msvc':
 			for e in self.extensions:
-				e.extra_compile_args += ['/openmp', '/O2']
+				e.extra_compile_args += ['/openmp', '/O2', '/fp:fast']
 		else:
 			self.add_march_native()
 			self.add_openmp_linkage()
+			self.add_no_math_errno()
 
 			for e in self.extensions:
 				# e.extra_compile_args = ['-fopenmp', '-O2', '-march=native', '-std=c99']
@@ -41,6 +42,13 @@ class build_ext_subclass( build_ext ):
 		elif self.test_supports_compile_arg(arg_mcpu_native):
 			for e in self.extensions:
 				e.extra_compile_args.append(arg_mcpu_native)
+
+	def add_no_math_errno(self):
+		arg_fnme = "-fno-math-errno"
+		if self.test_supports_compile_arg(arg_fnme):
+			for e in self.extensions:
+				e.extra_compile_args.append(arg_fnme)
+				e.extra_link_args.append(arg_fnme)
 
 	def add_openmp_linkage(self):
 		arg_omp1 = "-fopenmp"
@@ -107,7 +115,7 @@ setup(
 	 'scipy',
 	 'cython'
 ],
-	version = '0.2.5-1',
+	version = '0.2.5-2',
 	description = 'Hierarchical Poisson matrix factorization for recommender systems',
 	author = 'David Cortes',
 	author_email = 'david.cortes.rivera@gmail.com',
