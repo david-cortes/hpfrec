@@ -43,12 +43,27 @@ Or if that fails:
 pip install --no-use-pep517 hpfrec
 ```
 
+** *
 **Note for macOS users:** on macOS, the Python version of this package might compile **without** multi-threading capabilities. In order to enable multi-threading support, first install OpenMP:
 ```
 brew install libomp
 ```
 And then reinstall this package: `pip install --force-reinstall hpfrec`.
 
+** *
+**IMPORTANT:** the setup script will try to add compilation flag `-march=native`. This instructs the compiler to tune the package for the CPU in which it is being installed, but the result might not be usable in other computers. If building a binary wheel of this package or putting it into a docker image which will be used in different machines, this can be overriden by manually supplying compilation `CFLAGS` as an environment variable with something related to architecture. For maximum compatibility (but slowest speed), assuming `x86-64` computers, it's possible to do something like this:
+
+```
+export CFLAGS="-msse2"
+pip install ctpfrec
+```
+
+or for creating wheels:
+```
+export CFLAGS="-msse2"
+python setup.py bwheel
+```
+** *
 
 As it contains Cython code, it requires a C compiler. In Windows, this usually means it requires a Visual Studio Build Tools installation (with MSVC140 component for `conda`) (or MinGW + GCC), and if using Anaconda, might also require configuring it to use said Visual Studio instead of MinGW, otherwise the installation from `pip` might fail. For more details see this guide:
 [Cython Extensions On Windows](https://github.com/cython/cython/wiki/CythonExtensionsOnWindows)

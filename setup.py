@@ -21,7 +21,8 @@ class build_ext_subclass( build_ext ):
 			for e in self.extensions:
 				e.extra_compile_args += ['/openmp', '/O2', '/fp:fast']
 		else:
-			self.add_march_native()
+			if not self.check_cflags_contain_arch():
+				self.add_march_native()
 			self.add_openmp_linkage()
 			self.add_no_math_errno()
 			self.add_no_trapping_math()
@@ -33,6 +34,14 @@ class build_ext_subclass( build_ext ):
 				e.extra_compile_args += ['-O2', '-std=c99']
 
 		build_ext.build_extensions(self)
+
+	def check_cflags_contain_arch(self):
+		if "CFLAGS" in os.environ:
+			arch_list = ["-march", "-mcpu", "-mtune", "-msse", "-msse2", "-msse3", "-mssse3", "-msse4", "-msse4a", "-msse4.1", "-msse4.2", "-mavx", "-mavx2"]
+			for flag in arch_list:
+				if flag in os.environ["CFLAGS"]:
+					return True
+		return False
 
 	def add_march_native(self):
 		arg_march_native = "-march=native"
@@ -123,7 +132,7 @@ setup(
 	 'scipy',
 	 'cython'
 ],
-	version = '0.2.5-3',
+	version = '0.2.5-4',
 	description = 'Hierarchical Poisson matrix factorization for recommender systems',
 	author = 'David Cortes',
 	author_email = 'david.cortes.rivera@gmail.com',
