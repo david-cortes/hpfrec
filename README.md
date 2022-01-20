@@ -55,7 +55,7 @@ And then reinstall this package: `pip install --force-reinstall hpfrec`.
 
 ```
 export CFLAGS="-msse2"
-pip install ctpfrec
+pip install hpfrec
 ```
 
 or for creating wheels:
