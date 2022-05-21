@@ -72,19 +72,25 @@ class build_ext_subclass( build_ext ):
 		arg_omp2 = "-qopenmp"
 		arg_omp3 = "-xopenmp"
 		args_apple_omp = ["-Xclang", "-fopenmp", "-lomp"]
-		if self.test_supports_compile_arg(arg_omp1):
+		args_apple_omp2 = ["-Xclang", "-fopenmp", "-L/usr/local/lib", "-lomp", "-I/usr/local/include"]
+		if self.test_supports_compile_arg(arg_omp1, with_omp=True):
 			for e in self.extensions:
 				e.extra_compile_args.append(arg_omp1)
 				e.extra_link_args.append(arg_omp1)
-		elif (sys.platform[:3].lower() == "dar") and self.test_supports_compile_arg(args_apple_omp):
+		elif (sys.platform[:3].lower() == "dar") and self.test_supports_compile_arg(args_apple_omp, with_omp=True):
 			for e in self.extensions:
 				e.extra_compile_args += ["-Xclang", "-fopenmp"]
 				e.extra_link_args += ["-lomp"]
-		elif self.test_supports_compile_arg(arg_omp2):
+		elif (sys.platform[:3].lower() == "dar") and self.test_supports_compile_arg(args_apple_omp2, with_omp=True):
+			for e in self.extensions:
+				e.extra_compile_args += ["-Xclang", "-fopenmp"]
+				e.extra_link_args += ["-L/usr/local/lib", "-lomp"]
+				e.include_dirs += ["/usr/local/include"]
+		elif self.test_supports_compile_arg(arg_omp2, with_omp=True):
 			for e in self.extensions:
 				e.extra_compile_args.append(arg_omp2)
 				e.extra_link_args.append(arg_omp2)
-		elif self.test_supports_compile_arg(arg_omp3):
+		elif self.test_supports_compile_arg(arg_omp3, with_omp=True):
 			for e in self.extensions:
 				e.extra_compile_args.append(arg_omp3)
 				e.extra_link_args.append(arg_omp3)
@@ -93,7 +99,7 @@ class build_ext_subclass( build_ext ):
 			for e in self.extensions:
 				e.sources = [re.sub(r"^(.*)return1\.pyx$", r"\1return0.pyx", s) for s in e.sources]
 
-	def test_supports_compile_arg(self, comm):
+	def test_supports_compile_arg(self, comm, with_omp=False):
 		is_supported = False
 		try:
 			if not hasattr(self.compiler, "compiler"):
@@ -105,10 +111,16 @@ class build_ext_subclass( build_ext ):
 			with open(fname, "w") as ftest:
 				ftest.write(u"int main(int argc, char**argv) {return 0;}\n")
 			try:
-				cmd = [self.compiler.compiler[0]]
+				if not isinstance(self.compiler.compiler, list):
+					cmd = list(self.compiler.compiler)
+				else:
+					cmd = self.compiler.compiler
 			except:
-				cmd = list(self.compiler.compiler)
+				cmd = self.compiler.compiler
 			val_good = subprocess.call(cmd + [fname])
+			if with_omp:
+				with open(fname, "w") as ftest:
+					ftest.write(u"#include <omp.h>\nint main(int argc, char**argv) {return 0;}\n")
 			try:
 				val = subprocess.call(cmd + comm + [fname])
 				is_supported = (val == val_good)
@@ -132,7 +144,7 @@ setup(
 	 'scipy',
 	 'cython'
 ],
-	version = '0.2.5-4',
+	version = '0.2.5-5',
 	description = 'Hierarchical Poisson matrix factorization for recommender systems',
 	author = 'David Cortes',
 	author_email = 'david.cortes.rivera@gmail.com',
