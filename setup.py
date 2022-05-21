@@ -21,7 +21,7 @@ class build_ext_subclass( build_ext ):
 			for e in self.extensions:
 				e.extra_compile_args += ['/openmp', '/O2', '/fp:fast']
 		else:
-			if not self.check_cflags_contain_arch():
+			if not self.check_for_variable_dont_set_march() and not self.check_cflags_contain_arch():
 				self.add_march_native()
 			self.add_openmp_linkage()
 			self.add_no_math_errno()
@@ -42,6 +42,9 @@ class build_ext_subclass( build_ext ):
 				if flag in os.environ["CFLAGS"]:
 					return True
 		return False
+
+	def check_for_variable_dont_set_march(self):
+		return "DONT_SET_MARCH" in os.environ
 
 	def add_march_native(self):
 		arg_march_native = "-march=native"
