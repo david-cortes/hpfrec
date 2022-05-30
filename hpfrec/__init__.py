@@ -3,6 +3,7 @@ import multiprocessing, os, warnings
 from . import cython_loops_float, cython_loops_double, _check_openmp
 import ctypes, types, inspect
 from scipy.sparse import coo_matrix, csr_matrix
+### TODO: don't do this, use iloc/loc and make copies instead
 pd.options.mode.chained_assignment = None
 
 class HPF:
@@ -692,7 +693,7 @@ class HPF:
 			if self.produce_dicts:
 				try:
 					counts_df['ItemId'] = counts_df.ItemId.map(lambda x: self.item_dict_[x])
-				except:
+				except Exception:
 					raise ValueError("Can only make calculations for items that were in the training set.")
 			else:
 				counts_df['ItemId'] = pd.Categorical(counts_df.ItemId.values, self.item_mapping_).codes
@@ -787,7 +788,7 @@ class HPF:
 				msg = "When using 'partial_fit', the list of items seen by each user is not updated "
 				msg += "with the data passed here."
 				warnings.warn(msg)
-			except:
+			except Exception:
 				msg = "When fitting the model through 'partial_fit' without calling 'fit' beforehand, "
 				msg += "'keep_data' will be forced to False."
 				warnings.warn(msg)
@@ -802,23 +803,23 @@ class HPF:
 		if nusers is None:
 			try:
 				nusers = self.nusers
-			except:
+			except Exception:
 				raise ValueError("Must specify total number of users when calling 'partial_fit' for the first time.")
 		if nitems is None:
 			try:
 				nitems = self.nitems
-			except:
+			except Exception:
 				raise ValueError("Must specify total number of items when calling 'partial_fit' for the first time.")
 
 		try:
 			if self.nusers is None:
 				self.nusers = nusers
-		except:
+		except Exception:
 			self.nusers = nusers
 		try:
 			if self.nitems is None:
 				self.nitems = nitems
-		except:
+		except Exception:
 			self.nitems = nitems
 
 		if step_size is None:
@@ -826,13 +827,13 @@ class HPF:
 				self.step_size(0)
 				try:
 					step_size = self.step_size(self.niter)
-				except:
+				except Exception:
 					self.niter = 0
 					step_size = 1.0
-			except:
+			except Exception:
 				try:
 					step_size = 1 / np.sqrt(self.niter + 2)
-				except:
+				except Exception:
 					self.niter = 0
 					step_size = 1.0
 		assert step_size >= 0
@@ -1224,7 +1225,7 @@ class HPF:
 					if self.user_dict_ is not None:
 						try:
 							user = self.user_dict_[user]
-						except:
+						except Exception:
 							user = -1
 					else:
 						user = pd.Categorical(user, self.user_mapping_).codes[0]
@@ -1233,7 +1234,7 @@ class HPF:
 				if self.user_dict_ is not None:
 					try:
 						user = self.user_dict_[user]
-					except:
+					except Exception:
 						user = -1
 				else:
 					user = pd.Categorical(np.array([user]), self.user_mapping_).codes[0]
@@ -1250,7 +1251,7 @@ class HPF:
 					if self.item_dict_ is not None:
 						try:
 							item = self.item_dict_[item]
-						except:
+						except Exception:
 							item = -1
 					else:
 						item = pd.Categorical(item, self.item_mapping_).codes[0]
@@ -1259,7 +1260,7 @@ class HPF:
 				if self.item_dict_ is not None:
 					try:
 						item = self.item_dict_[item]
-					except:
+					except Exception:
 						item = -1
 				else:
 					item = pd.Categorical(np.array([item]), self.item_mapping_).codes[0]
@@ -1321,7 +1322,7 @@ class HPF:
 			if self.produce_dicts:
 				try:
 					user = self.user_dict_[user]
-				except:
+				except Exception:
 					raise ValueError("Can only predict for users who were in the training set.")
 			else:
 				user = pd.Categorical(np.array([user]), self.user_mapping_).codes[0]
