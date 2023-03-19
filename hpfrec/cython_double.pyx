@@ -1,3 +1,4 @@
+#cython: language_level=3
 from scipy.linalg.cython_blas cimport ddot
 import ctypes
 
