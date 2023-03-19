@@ -120,7 +120,7 @@ class build_ext_subclass( build_ext ):
         args_apple_omp2 = ["-Xclang", "-fopenmp", "-L/usr/local/lib", "-lomp", "-I/usr/local/include"]
         has_brew_omp = False
         if is_apple:
-            res_brew_pref = subprocess.run(["brew", "--prefix", "libomp"], capture_output=silent_tests)
+            res_brew_pref = subprocess.run(["brew", "--prefix", "libomp"], capture_output=True)
             if res_brew_pref.returncode == EXIT_SUCCESS:
                 has_brew_omp = True
                 brew_omp_prefix = res_brew_pref.stdout.decode().strip()
@@ -210,7 +210,7 @@ setup(
      'scipy',
      'cython'
 ],
-    version = '0.2.5-9',
+    version = '0.2.5-10',
     description = 'Hierarchical Poisson matrix factorization for recommender systems',
     author = 'David Cortes',
     url = 'https://github.com/david-cortes/hpfrec',
