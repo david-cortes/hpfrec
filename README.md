@@ -32,6 +32,8 @@ The parameters are fit using mean-field approximation (a form of Bayesian variat
 
 ## Installation
 
+**Note:** requires a C compiler configured for Python. See [this guide](https://github.com/david-cortes/installing-optimized-libraries) for instructions.
+
 Package is available on PyPI, can be installed with:
 
 ```
@@ -64,10 +66,6 @@ export CFLAGS="-march=x86-64"
 pip install hpfrec
 ```
 ** *
-
-As it contains Cython code, it requires a C compiler. In Windows, this usually means it requires a Visual Studio Build Tools installation (with MSVC140 component for `conda`) (or MinGW + GCC), and if using Anaconda, might also require configuring it to use said Visual Studio instead of MinGW, otherwise the installation from `pip` might fail. For more details see this guide:
-[Cython Extensions On Windows](https://github.com/cython/cython/wiki/CythonExtensionsOnWindows)
-
 
 ## Sample usage
 
@@ -181,14 +179,6 @@ For faster fitting and predictions, use SciPy and NumPy libraries compiled again
 The constructor for HPF allows some parameters to make it run faster (if you know what you're doing): these are `allow_inconsistent_math=True`, `full_llk=False`, `stop_crit='diff-norm'`, `reindex=False`, `verbose=False`. See the documentation for more details.
 
 Using stochastic variational inference, which fits the data in smaller batches containing all the user-item interactions only for subsets of users, might converge in fewer iterations (epochs), but the results tend be slightly worse.
-
-## Troubleshooting
-
-* Package uses only one CPU core: make sure that your C compiler supports OpenMP (both Visual Studio and GCC do in default installations, but with MinGW you might need additional modules).
-* Error with `vcvarsall.bat`: see installation instructions (you need to configure your Python installation to use Visual Studio and set the correct paths to libraries). If you are using Python 2, try installing under a Python 3 environment instead and the problem might disappear.
-* Parameters turn to NaN: you might have run into an unlucky parmeter initialization. Try using a different random seed, or changing the number of latent factors (`k`). If passing `reindex=False`, try changing to `reindex=True`.
-
-The package has only been tested under Python 3.6.
 
 ## References
 * [1] Gopalan, Prem, Jake M. Hofman, and David M. Blei. "Scalable Recommendation with Hierarchical Poisson Factorization." UAI. 2015.
