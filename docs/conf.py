@@ -19,7 +19,7 @@
 #
 import os
 import sys
-# sys.path.insert(0, os.path.abspath('.'))
+sys.path.insert(0, os.path.abspath('./'))
 # sys.path.insert(0, os.path.abspath('../'))
 
 # -- General configuration ------------------------------------------------
@@ -31,10 +31,15 @@ import sys
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
-extensions = ['sphinx.ext.autodoc', 'sphinx.ext.napoleon', 'sphinx_rtd_theme']
+extensions = [
+    'sphinx.ext.autodoc',
+    'sphinx.ext.napoleon',
+    'sphinx.ext.viewcode',
+]
 napoleon_google_docstring = False
 napoleon_use_param = False
 napoleon_use_ivar = True
+html_theme = "sphinx_rtd_theme"
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
@@ -75,10 +80,10 @@ language = None
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 
 # The name of the Pygments (syntax highlighting) style to use.
-pygments_style = 'sphinx'
+# pygments_style = 'sphinx'
 
 # If true, `todo` and `todoList` produce output, else they produce nothing.
-todo_include_todos = False
+# todo_include_todos = False
 
 
 # -- Options for HTML output ----------------------------------------------
@@ -87,12 +92,12 @@ todo_include_todos = False
 # a list of builtin themes.
 #
 # html_theme = 'alabaster'
-on_rtd = os.environ.get('READTHEDOCS', None) == 'True'
+# on_rtd = os.environ.get('READTHEDOCS', None) == 'True'
 
-if not on_rtd:  # only import and set the theme if we're building docs locally
-    import sphinx_rtd_theme
-    html_theme = 'sphinx_rtd_theme'
-    html_theme_path = [sphinx_rtd_theme.get_html_theme_path()]
+# if not on_rtd:  # only import and set the theme if we're building docs locally
+#     import sphinx_rtd_theme
+#     html_theme = 'sphinx_rtd_theme'
+#     html_theme_path = [sphinx_rtd_theme.get_html_theme_path()]
 
 # otherwise, readthedocs.org uses their theme by default, so no need to specify it
 
