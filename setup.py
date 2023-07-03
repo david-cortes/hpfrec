@@ -207,12 +207,6 @@ class build_ext_subclass( build_ext ):
 setup(
     name = 'hpfrec',
     packages = ['hpfrec'],
-    install_requires=[
-     'pandas>=0.24',
-     'numpy>=1.18',
-     'scipy',
-     'cython'
-],
     version = '0.2.6',
     description = 'Hierarchical Poisson matrix factorization for recommender systems',
     author = 'David Cortes',
