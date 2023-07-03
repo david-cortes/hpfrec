@@ -1,5 +1,5 @@
 pandas
 numpy
-scipy 
+scipy>=1.11.1
 cython
 Sphinx>=3.2.1
