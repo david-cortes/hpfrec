@@ -37,9 +37,8 @@ def cast_ind_type(n):
 ### Procedures reusable by package ctpfrec
 ##########################################
 def get_csc_data(ix_u, ix_i, Y, nU, nI):
-	from scipy.sparse import coo_matrix, csc_matrix
-	X = coo_matrix((Y, (ix_u, ix_i)), shape=(nU, nI))
-	X = csc_matrix(X)
+	from scipy.sparse import coo_array
+	X = coo_array((Y, (ix_u, ix_i)), shape=(nU, nI)).tocsc()
 	return X.indptr.astype(obj_ind_type), X.indices.astype(obj_ind_type), X.data.astype(c_real_t)
 
 def get_unique_items_batch(np.ndarray[ind_type, ndim=1] users_this_batch,

@@ -213,7 +213,7 @@ setup(
      'scipy',
      'cython'
 ],
-    version = '0.2.5-11',
+    version = '0.2.6',
     description = 'Hierarchical Poisson matrix factorization for recommender systems',
     author = 'David Cortes',
     url = 'https://github.com/david-cortes/hpfrec',

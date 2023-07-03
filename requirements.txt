@@ -1,4 +1,4 @@
 pandas>=0.24
 numpy>=1.18
-scipy 
+scipy>=1.11.1
 cython

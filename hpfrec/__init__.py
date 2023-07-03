@@ -2,7 +2,7 @@ import pandas as pd, numpy as np
 import multiprocessing, os, warnings
 from . import cython_loops_float, cython_loops_double, _check_openmp
 import ctypes, types, inspect
-from scipy.sparse import coo_matrix, csr_matrix
+from scipy.sparse import coo_array, issparse
 ### TODO: don't do this, use iloc/loc and make copies instead
 pd.options.mode.chained_assignment = None
 
@@ -381,11 +381,11 @@ class HPF:
 
 		Parameters
 		----------
-		counts_df : pandas data frame (nobs, 3) or coo_matrix
+		counts_df : pandas data frame (nobs, 3) or coo_array
 			Input data with one row per non-zero observation, consisting of triplets ('UserId', 'ItemId', 'Count').
 			Must containin columns 'UserId', 'ItemId', and 'Count'.
 			Combinations of users and items not present are implicitly assumed to be zero by the model.
-			Can also pass a sparse coo_matrix, in which case 'reindex' will be forced to 'False'.
+			Can also pass a sparse coo_array, in which case 'reindex' will be forced to 'False'.
 		val_set : pandas data frame (nobs, 3)
 			Validation set on which to monitor log-likelihood. Same format as counts_df.
 
@@ -445,7 +445,7 @@ class HPF:
 			assert 'Count' in input_df.columns.values
 			input_df = input_df[['UserId', 'ItemId', 'Count']]
 			
-		elif input_df.__class__.__name__ == 'coo_matrix':
+		elif issparse(input_df) and (input_df.format == "coo"):
 			self.nusers = input_df.shape[0]
 			self.nitems = input_df.shape[1]
 			input_df = pd.DataFrame({
@@ -456,7 +456,7 @@ class HPF:
 			self.reindex = False
 			calc_n = False
 		else:
-			raise ValueError("'input_df' must be a pandas data frame, numpy array, or scipy sparse coo_matrix.")
+			raise ValueError("'input_df' must be a pandas data frame, numpy array, or scipy sparse coo_array.")
 
 		if self.stop_crit in ['maxiter', 'diff-norm']:
 			thr = 0
@@ -539,7 +539,7 @@ class HPF:
 			assert 'Count' in val_set.columns.values
 			self.val_set = val_set[['UserId', 'ItemId', 'Count']]
 
-		elif val_set.__class__.__name__ == 'coo_matrix':
+		elif issparse(val_set) and (val_set.format == "coo"):
 			assert val_set.shape[0] <= self.nusers
 			assert val_set.shape[1] <= self.nitems
 			self.val_set = pd.DataFrame({
@@ -548,7 +548,7 @@ class HPF:
 				'Count'  : val_set.data
 				})
 		else:
-			raise ValueError("'val_set' must be a pandas data frame, numpy array, or sparse coo_matrix.")
+			raise ValueError("'val_set' must be a pandas data frame, numpy array, or sparse coo_array.")
 			
 		if self.stop_crit == 'val-llk':
 			thr = 0
@@ -591,8 +591,7 @@ class HPF:
 		cython_loops = cython_loops_float if self.use_float else cython_loops_double
 		if self.verbose and for_partial_fit:
 			print("Creating user indices for stochastic optimization...")
-		X = coo_matrix((self.input_df.Count.values, (self.input_df.UserId.values, self.input_df.ItemId.values)), shape=(self.nusers, self.nitems))
-		X = csr_matrix(X)
+		X = coo_array((self.input_df.Count.values, (self.input_df.UserId.values, self.input_df.ItemId.values)), shape=(self.nusers, self.nitems)).tocsr()
 		self._n_seen_by_user = X.indptr[1:] - X.indptr[:-1]
 		if for_partial_fit:
 			self._st_ix_user = X.indptr.astype(cython_loops.obj_ind_type)
