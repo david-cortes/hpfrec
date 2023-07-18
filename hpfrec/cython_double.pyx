@@ -2,13 +2,7 @@
 from scipy.linalg.cython_blas cimport ddot
 import ctypes
 
-## TODO: use libc.math once Cython 0.30 is released
-# from libc.math cimport log, exp
-cdef extern from "<math.h>":
-	double log(double x) nogil
-	double exp(double x) nogil
-	const double HUGE_VAL
-	const long double HUGE_VALL
+from libc.math cimport log, exp, HUGE_VAL, HUGE_VALL
 
 c_real_t = ctypes.c_double
 ctypedef double real_t

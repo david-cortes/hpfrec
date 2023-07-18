@@ -207,11 +207,11 @@ class build_ext_subclass( build_ext ):
 setup(
     name = 'hpfrec',
     packages = ['hpfrec'],
-    version = '0.2.6',
+    version = '0.2.7',
     description = 'Hierarchical Poisson matrix factorization for recommender systems',
     author = 'David Cortes',
     url = 'https://github.com/david-cortes/hpfrec',
-    keywords = ['poisson', 'probabilistic', 'non-negative', 'factorization', 'variational inference', 'collaborative filtering'],
+    keywords = ['poisson', 'probabilistic', 'factorization', 'variational inference', 'collaborative filtering'],
     classifiers = [],
 
     cmdclass = {'build_ext': build_ext_subclass},

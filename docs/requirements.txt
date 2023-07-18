@@ -1,6 +1,6 @@
 pandas
-numpy
+numpy>=1.25
 scipy>=1.11.1
-cython
-Sphinx
+cython>=3.0.0
+Sphinx>=4.2.0
 sphinx-rtd-theme
