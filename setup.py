@@ -8,6 +8,7 @@ except ImportError:
 from Cython.Distutils import build_ext
 import numpy
 import sys, os, subprocess, warnings, re
+import platform
 
 found_omp = True
 def set_omp_false():
@@ -24,6 +25,8 @@ try:
     EXIT_SUCCESS = os.EX_OK
 except AttributeError:
     EXIT_SUCCESS = 0
+
+IS_WINDOWS = platform.system() == "Windows"
 
 ## https://stackoverflow.com/questions/724664/python-distutils-how-to-get-a-compiler-that-is-going-to-be-used
 class build_ext_subclass( build_ext ):
@@ -207,7 +210,7 @@ class build_ext_subclass( build_ext ):
 setup(
     name = 'hpfrec',
     packages = ['hpfrec'],
-    version = '0.2.8',
+    version = '0.2.9',
     description = 'Hierarchical Poisson matrix factorization for recommender systems',
     author = 'David Cortes',
     url = 'https://github.com/david-cortes/hpfrec',
@@ -217,17 +220,27 @@ setup(
     cmdclass = {'build_ext': build_ext_subclass},
     ext_modules = [ Extension(
                         "hpfrec.cython_loops_float",
-                        sources=["hpfrec/cython_float.pyx"],
+                        sources=[
+                            "hpfrec/cython_float_nonwindows.pyx"
+                            if not IS_WINDOWS
+                            else
+                            "hpfrec/cython_float_windows.pyx"
+                        ],
                         include_dirs=[numpy.get_include()]
                     ),
                     Extension(
                         "hpfrec.cython_loops_double",
-                        sources=["hpfrec/cython_double.pyx"],
+                        sources=[
+                            "hpfrec/cython_double_nonwindows.pyx"
+                            if not IS_WINDOWS
+                            else
+                            "hpfrec/cython_double_windows.pyx"
+                        ],
                         include_dirs=[numpy.get_include()]
                     ),
                     Extension(
                         "hpfrec._check_openmp",
-                        sources=["hpfrec/return1.pyx"],
+                        sources=["hpfrec/return1.pyx" if found_omp else "hpfrec/return0.pyx"],
                         include_dirs=[numpy.get_include()]
                     ) ]
 )
