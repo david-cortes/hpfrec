@@ -5,7 +5,16 @@ from scipy.linalg.cython_blas cimport sdot
 from scipy.special.cython_special cimport psi, gamma
 import ctypes
 
-from libc.math cimport log, exp, logf, expf, HUGE_VALF, HUGE_VAL, HUGE_VALL
+# TODO: once issues with newer cython are sorted out, should cimport as below:
+# from libc.math cimport log, exp, logf, expf, HUGE_VALF, HUGE_VAL, HUGE_VALL
+cdef extern from "<math.h>":
+    double log(double x) nogil
+    float logf(float) nogil
+    double exp(double x) nogil
+    float expf(float) nogil
+    const float HUGE_VALF
+    const double HUGE_VAL
+    const long double HUGE_VALL
 
 c_real_t = ctypes.c_float
 ctypedef float real_t
