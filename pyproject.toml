@@ -1,2 +1,2 @@
 [build-system]
-requires = ["cython==0.29.36", "setuptools", "wheel", "numpy>=1.25", "scipy>=1.11.1"]
+requires = ["cython>=3.0.0", "setuptools", "wheel", "numpy>=1.25", "scipy>=1.11.1"]

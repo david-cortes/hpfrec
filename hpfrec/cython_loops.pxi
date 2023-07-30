@@ -550,44 +550,45 @@ def predict_arr(np.ndarray[real_t, ndim=2] M1, np.ndarray[real_t, ndim=2] M2, np
 @cython.cdivision(True)
 cdef void update_phi(real_t* G_sh, real_t* G_rt, real_t* L_sh, real_t* L_rt,
 					 real_t* phi, real_t* Y, ind_type k, int sum_exp_trick,
-					 ind_type* ix_u, ind_type* ix_i, ind_type nY, int nthreads) nogil:
+					 ind_type* ix_u, ind_type* ix_i, ind_type nY, int nthreads) noexcept nogil:
 	cdef ind_type uid, iid
 	cdef ind_type uid_st, iid_st, phi_st
 	cdef real_t sumphi, maxval
 	cdef ind_type i, j
 
-	if sum_exp_trick:
-		for i in prange(nY, schedule='static', num_threads=nthreads):
-			uid = ix_u[i]
-			iid = ix_i[i]
-			sumphi = 0
-			maxval = - HUGE_VAL_T
-			uid_st = k*uid
-			iid_st = k*iid
-			phi_st = i*k
-			for j in range(k):
-				phi[phi_st + j] = psi(G_sh[uid_st + j]) - log(G_rt[uid_st + j]) + psi(L_sh[iid_st + j]) - log(L_rt[iid_st + j])
-				if phi[phi_st + j] > maxval:
-					maxval = phi[phi_st + j]
-			for j in range(k):
-				phi[phi_st + j] = exp_t(phi[phi_st + j] - maxval)
-				sumphi += phi[phi_st + j]
-			for j in range(k):
-				phi[phi_st + j] *= Y[i]/sumphi
+	with nogil:
+		if sum_exp_trick:
+			for i in prange(nY, schedule='static', num_threads=nthreads):
+				uid = ix_u[i]
+				iid = ix_i[i]
+				sumphi = 0
+				maxval = - HUGE_VAL_T
+				uid_st = k*uid
+				iid_st = k*iid
+				phi_st = i*k
+				for j in range(k):
+					phi[phi_st + j] = psi(G_sh[uid_st + j]) - log(G_rt[uid_st + j]) + psi(L_sh[iid_st + j]) - log(L_rt[iid_st + j])
+					if phi[phi_st + j] > maxval:
+						maxval = phi[phi_st + j]
+				for j in range(k):
+					phi[phi_st + j] = exp_t(phi[phi_st + j] - maxval)
+					sumphi += phi[phi_st + j]
+				for j in range(k):
+					phi[phi_st + j] *= Y[i]/sumphi
 
-	else:
-		for i in prange(nY, schedule='static', num_threads=nthreads):
-			uid = ix_u[i]
-			iid = ix_i[i]
-			sumphi = 0
-			uid_st = k*uid
-			iid_st = k*iid
-			phi_st = i*k
-			for j in range(k):
-				phi[phi_st + j] = exp(  psi(G_sh[uid_st + j]) - log(G_rt[uid_st + j]) + psi(L_sh[iid_st + j]) - log(L_rt[iid_st + j])  )
-				sumphi += phi[phi_st + j]
-			for j in range(k):
-				phi[phi_st + j] *= Y[i]/sumphi
+		else:
+			for i in prange(nY, schedule='static', num_threads=nthreads):
+				uid = ix_u[i]
+				iid = ix_i[i]
+				sumphi = 0
+				uid_st = k*uid
+				iid_st = k*iid
+				phi_st = i*k
+				for j in range(k):
+					phi[phi_st + j] = exp(  psi(G_sh[uid_st + j]) - log(G_rt[uid_st + j]) + psi(L_sh[iid_st + j]) - log(L_rt[iid_st + j])  )
+					sumphi += phi[phi_st + j]
+				for j in range(k):
+					phi[phi_st + j] *= Y[i]/sumphi
 
 
 @cython.boundscheck(False)
@@ -596,12 +597,13 @@ cdef void update_phi(real_t* G_sh, real_t* G_rt, real_t* L_sh, real_t* L_rt,
 @cython.cdivision(True)
 cdef void update_G_n_L_sh_par(real_t* G_sh, real_t* L_sh,
 						  real_t* phi, ind_type k,
-						  ind_type* ix_u, ind_type* ix_i, ind_type nY, int nthreads) nogil:
+						  ind_type* ix_u, ind_type* ix_i, ind_type nY, int nthreads) noexcept nogil:
 	cdef ind_type i, j
-	for i in prange(nY, schedule='static', num_threads=nthreads):
-		for j in range(k):
-			G_sh[ix_u[i]*k + j] += phi[i*k + j]
-			L_sh[ix_i[i]*k + j] += phi[i*k + j]
+	with nogil:
+		for i in prange(nY, schedule='static', num_threads=nthreads):
+			for j in range(k):
+				G_sh[ix_u[i]*k + j] += phi[i*k + j]
+				L_sh[ix_i[i]*k + j] += phi[i*k + j]
 
 
 @cython.boundscheck(False)
@@ -610,12 +612,13 @@ cdef void update_G_n_L_sh_par(real_t* G_sh, real_t* L_sh,
 @cython.cdivision(True)
 cdef void update_G_n_L_sh(real_t* G_sh, real_t* L_sh,
 						  real_t* phi, ind_type k,
-						  ind_type* ix_u, ind_type* ix_i, ind_type nY) nogil:
+						  ind_type* ix_u, ind_type* ix_i, ind_type nY) noexcept nogil:
 	cdef ind_type i, j
-	for i in range(nY):
-		for j in range(k):
-			G_sh[ix_u[i]*k + j] += phi[i*k + j]
-			L_sh[ix_i[i]*k + j] += phi[i*k + j]
+	with nogil:
+		for i in range(nY):
+			for j in range(k):
+				G_sh[ix_u[i]*k + j] += phi[i*k + j]
+				L_sh[ix_i[i]*k + j] += phi[i*k + j]
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -623,35 +626,36 @@ cdef void update_G_n_L_sh(real_t* G_sh, real_t* L_sh,
 @cython.cdivision(True)
 cdef void llk_plus_rmse(real_t* T, real_t* B, real_t* Y,
 						ind_type* ix_u, ind_type* ix_i, ind_type nY, ind_type kszt,
-						long_double_type* out, int nthreads, int add_mse, int full_llk) nogil:
+						long_double_type* out, int nthreads, int add_mse, int full_llk) noexcept nogil:
 	cdef ind_type i
 	cdef int one = 1
 	cdef real_t yhat
 	cdef long_double_type out1 = 0
 	cdef long_double_type out2 =  0
 	cdef int k = <int> kszt
-	if add_mse:
-		if full_llk:
-			for i in prange(nY, schedule='static', num_threads=nthreads):
-				yhat = tdot(&k, &T[ix_u[i] * kszt], &one, &B[ix_i[i] * kszt], &one)
-				out1 += Y[i]*log(yhat) - loggamma(Y[i] + 1.)
-				out2 += (Y[i] - yhat)**2
-		else:
-			for i in prange(nY, schedule='static', num_threads=nthreads):
-				yhat = tdot(&k, &T[ix_u[i] * kszt], &one, &B[ix_i[i] * kszt], &one)
-				out1 += Y[i]*log_t(yhat)
-				out2 += (Y[i] - yhat)**2
-		out[0] = out1
-		out[1] = out2
-	else:
-		if full_llk:
-			for i in prange(nY, schedule='static', num_threads=nthreads):
-				out1 += Y[i]*log(tdot(&k, &T[ix_u[i] * kszt], &one, &B[ix_i[i] * kszt], &one)) - loggamma(Y[i] + 1.)
+	with nogil:
+		if add_mse:
+			if full_llk:
+				for i in prange(nY, schedule='static', num_threads=nthreads):
+					yhat = tdot(&k, &T[ix_u[i] * kszt], &one, &B[ix_i[i] * kszt], &one)
+					out1 += Y[i]*log(yhat) - loggamma(Y[i] + 1.)
+					out2 += (Y[i] - yhat)**2
+			else:
+				for i in prange(nY, schedule='static', num_threads=nthreads):
+					yhat = tdot(&k, &T[ix_u[i] * kszt], &one, &B[ix_i[i] * kszt], &one)
+					out1 += Y[i]*log_t(yhat)
+					out2 += (Y[i] - yhat)**2
 			out[0] = out1
+			out[1] = out2
 		else:
-			for i in prange(nY, schedule='static', num_threads=nthreads):
-				out1 += Y[i]*log_t(tdot(&k, &T[ix_u[i] * kszt], &one, &B[ix_i[i] * kszt], &one))
-			out[0] = out1
+			if full_llk:
+				for i in prange(nY, schedule='static', num_threads=nthreads):
+					out1 += Y[i]*log(tdot(&k, &T[ix_u[i] * kszt], &one, &B[ix_i[i] * kszt], &one)) - loggamma(Y[i] + 1.)
+				out[0] = out1
+			else:
+				for i in prange(nY, schedule='static', num_threads=nthreads):
+					out1 += Y[i]*log_t(tdot(&k, &T[ix_u[i] * kszt], &one, &B[ix_i[i] * kszt], &one))
+				out[0] = out1
 	### Comment: adding += directly to *out triggers compiler optimizations that produce
 	### different (and wrong) results across different runs.
 
@@ -661,30 +665,31 @@ cdef void llk_plus_rmse(real_t* T, real_t* B, real_t* Y,
 @cython.cdivision(True)
 cdef void update_phi_csr(real_t* G_sh, real_t* G_rt, real_t* L_sh, real_t* L_rt,
 						 real_t* phi, real_t* Y, ind_type* ix_i, ind_type* st_ix_u, ind_type* u_arr,
-						 ind_type k, ind_type nU, int nthreads) nogil:
+						 ind_type k, ind_type nU, int nthreads) noexcept nogil:
 	cdef ind_type u, i, j
 	cdef ind_type uid, n_uid
 	cdef ind_type st_G, st_L, phi_st, y_ix
 	cdef real_t sumrow, maxval
-	for u in prange(nU, schedule='dynamic', num_threads=nthreads):
-		uid = u_arr[u]
-		n_uid = st_ix_u[uid + 1] - st_ix_u[uid]
-		st_G = k * uid
-		for i in range(n_uid):
-			y_ix = i + st_ix_u[uid]
-			st_L = k * ix_i[y_ix]
-			phi_st = y_ix * k
-			sumrow = 0
-			maxval = - HUGE_VAL_T
-			for j in range(k):
-				phi[phi_st + j] = psi(G_sh[st_G + j]) - log(G_rt[st_G + j]) + psi(L_sh[st_L + j]) - log(L_rt[st_L + j])
-				if phi[phi_st + j] > maxval:
-					maxval = phi[phi_st + j]
-			for j in range(k):
-				phi[phi_st + j] = exp_t(phi[phi_st + j] - maxval)
-				sumrow += phi[phi_st + j]
-			for j in range(k):
-				phi[phi_st + j] *= Y[y_ix] / sumrow
+	with nogil:
+		for u in prange(nU, schedule='dynamic', num_threads=nthreads):
+			uid = u_arr[u]
+			n_uid = st_ix_u[uid + 1] - st_ix_u[uid]
+			st_G = k * uid
+			for i in range(n_uid):
+				y_ix = i + st_ix_u[uid]
+				st_L = k * ix_i[y_ix]
+				phi_st = y_ix * k
+				sumrow = 0
+				maxval = - HUGE_VAL_T
+				for j in range(k):
+					phi[phi_st + j] = psi(G_sh[st_G + j]) - log(G_rt[st_G + j]) + psi(L_sh[st_L + j]) - log(L_rt[st_L + j])
+					if phi[phi_st + j] > maxval:
+						maxval = phi[phi_st + j]
+				for j in range(k):
+					phi[phi_st + j] = exp_t(phi[phi_st + j] - maxval)
+					sumrow += phi[phi_st + j]
+				for j in range(k):
+					phi[phi_st + j] *= Y[y_ix] / sumrow
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -692,30 +697,31 @@ cdef void update_phi_csr(real_t* G_sh, real_t* G_rt, real_t* L_sh, real_t* L_rt,
 @cython.cdivision(True)
 cdef void update_phi_csr_small(real_t* G_sh, real_t* G_rt, real_t* L_sh, real_t* L_rt,
 						 	   real_t* phi, real_t* Y, ind_type* ix_i, ind_type* st_ix_u, ind_type* u_arr,
-						 	   ind_type* st_phi_u, ind_type k, ind_type nU, int nthreads) nogil:
+						 	   ind_type* st_phi_u, ind_type k, ind_type nU, int nthreads) noexcept nogil:
 	cdef ind_type u, i, j
 	cdef ind_type uid, n_uid
 	cdef ind_type st_G, st_L, phi_st, y_ix
 	cdef real_t sumrow, maxval
-	for u in prange(nU, schedule='dynamic', num_threads=nthreads):
-		uid = u_arr[u]
-		n_uid = st_ix_u[uid + 1] - st_ix_u[uid]
-		st_G = k * uid
-		for i in range(n_uid):
-			y_ix = i + st_ix_u[uid]
-			st_L = k * ix_i[y_ix]
-			phi_st = (st_phi_u[u] + i) * k
-			sumrow = 0
-			maxval = - HUGE_VAL_T
-			for j in range(k):
-				phi[phi_st + j] = psi(G_sh[st_G + j]) - log(G_rt[st_G + j]) + psi(L_sh[st_L + j]) - log(L_rt[st_L + j])
-				if phi[phi_st + j] > maxval:
-					maxval = phi[phi_st + j]
-			for j in range(k):
-				phi[phi_st + j] = exp_t(phi[phi_st + j] - maxval)
-				sumrow += phi[phi_st + j]
-			for j in range(k):
-				phi[phi_st + j] *= Y[y_ix] / sumrow
+	with nogil:
+		for u in prange(nU, schedule='dynamic', num_threads=nthreads):
+			uid = u_arr[u]
+			n_uid = st_ix_u[uid + 1] - st_ix_u[uid]
+			st_G = k * uid
+			for i in range(n_uid):
+				y_ix = i + st_ix_u[uid]
+				st_L = k * ix_i[y_ix]
+				phi_st = (st_phi_u[u] + i) * k
+				sumrow = 0
+				maxval = - HUGE_VAL_T
+				for j in range(k):
+					phi[phi_st + j] = psi(G_sh[st_G + j]) - log(G_rt[st_G + j]) + psi(L_sh[st_L + j]) - log(L_rt[st_L + j])
+					if phi[phi_st + j] > maxval:
+						maxval = phi[phi_st + j]
+				for j in range(k):
+					phi[phi_st + j] = exp_t(phi[phi_st + j] - maxval)
+					sumrow += phi[phi_st + j]
+				for j in range(k):
+					phi[phi_st + j] *= Y[y_ix] / sumrow
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -723,20 +729,21 @@ cdef void update_phi_csr_small(real_t* G_sh, real_t* G_rt, real_t* L_sh, real_t*
 @cython.cdivision(True)
 cdef void update_G_n_L_sh_csr(real_t* G_sh, real_t* L_sh,
 							  real_t* phi, ind_type k, ind_type nU, int nthreads,
-							  ind_type* ix_i, ind_type* st_ix_u, ind_type* u_arr) nogil:
+							  ind_type* ix_i, ind_type* st_ix_u, ind_type* u_arr) noexcept nogil:
 	cdef ind_type u, i, j
 	cdef ind_type uid, n_uid
 	cdef ind_type st_ix_G, st_ix_L, st_ix_phi
-	for u in prange(nU, schedule='dynamic', num_threads=nthreads):
-		uid = u_arr[u]
-		n_uid = st_ix_u[uid + 1] - st_ix_u[uid]
-		st_ix_G = uid * k
-		for i in range(n_uid):
-			st_ix_L = ix_i[i + st_ix_u[uid]] * k
-			st_ix_phi = (i + st_ix_u[uid]) * k
-			for j in range(k):
-				G_sh[st_ix_G + j] += phi[st_ix_phi + j]
-				L_sh[st_ix_L + j] += phi[st_ix_phi + j]
+	with nogil:
+		for u in prange(nU, schedule='dynamic', num_threads=nthreads):
+			uid = u_arr[u]
+			n_uid = st_ix_u[uid + 1] - st_ix_u[uid]
+			st_ix_G = uid * k
+			for i in range(n_uid):
+				st_ix_L = ix_i[i + st_ix_u[uid]] * k
+				st_ix_phi = (i + st_ix_u[uid]) * k
+				for j in range(k):
+					G_sh[st_ix_G + j] += phi[st_ix_phi + j]
+					L_sh[st_ix_L + j] += phi[st_ix_phi + j]
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -744,73 +751,78 @@ cdef void update_G_n_L_sh_csr(real_t* G_sh, real_t* L_sh,
 @cython.cdivision(True)
 cdef void update_G_n_L_sh_csr_small(real_t* G_sh, real_t* L_sh, ind_type* st_phi_u,
 							  		real_t* phi, ind_type k, ind_type nU, int nthreads,
-							  		ind_type* ix_i, ind_type* st_ix_u, ind_type* u_arr) nogil:
+							  		ind_type* ix_i, ind_type* st_ix_u, ind_type* u_arr) noexcept nogil:
 	cdef ind_type u, i, j
 	cdef ind_type uid, n_uid
 	cdef ind_type st_ix_G, st_ix_L, st_ix_phi
-	for u in prange(nU, schedule='dynamic', num_threads=nthreads):
-		uid = u_arr[u]
-		n_uid = st_ix_u[uid + 1] - st_ix_u[uid]
-		st_ix_G = uid * k
-		for i in range(n_uid):
-			st_ix_phi = (st_phi_u[u] + i) * k
-			st_ix_L = ix_i[i + st_ix_u[uid]] * k
-			for j in range(k):
-				G_sh[st_ix_G + j] += phi[st_ix_phi + j]
-				L_sh[st_ix_L + j] += phi[st_ix_phi + j]
+	with nogil:
+		for u in prange(nU, schedule='dynamic', num_threads=nthreads):
+			uid = u_arr[u]
+			n_uid = st_ix_u[uid + 1] - st_ix_u[uid]
+			st_ix_G = uid * k
+			for i in range(n_uid):
+				st_ix_phi = (st_phi_u[u] + i) * k
+				st_ix_L = ix_i[i + st_ix_u[uid]] * k
+				for j in range(k):
+					G_sh[st_ix_G + j] += phi[st_ix_phi + j]
+					L_sh[st_ix_L + j] += phi[st_ix_phi + j]
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.nonecheck(False)
 @cython.cdivision(True)
-cdef void get_i_batch_pass1(ind_type* st_ix_u, ind_type* u_arr, ind_type* out, ind_type nU) nogil:
+cdef void get_i_batch_pass1(ind_type* st_ix_u, ind_type* u_arr, ind_type* out, ind_type nU) noexcept nogil:
 	cdef ind_type st_out = 0
 	cdef ind_type u, n_uid, i
-	for u in range(nU):
-		n_uid = st_ix_u[u_arr[u] + 1] - st_ix_u[u_arr[u]]
-		st_out += n_uid
-		out[u + 1] = st_out
+	with nogil:
+		for u in range(nU):
+			n_uid = st_ix_u[u_arr[u] + 1] - st_ix_u[u_arr[u]]
+			st_out += n_uid
+			out[u + 1] = st_out
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.nonecheck(False)
 @cython.cdivision(True)
 cdef void get_i_batch_pass2(ind_type* st_ix_u, ind_type* st_ix_out, ind_type* out, ind_type* ix_i, ind_type* u_arr,
-						  ind_type nU, int nthreads) nogil:
+						  ind_type nU, int nthreads) noexcept nogil:
 	cdef ind_type i, u
 	cdef ind_type uid, n_uid, st_out
-	for u in prange(nU, schedule='dynamic', num_threads=nthreads):
-		uid = u_arr[u]
-		n_uid = st_ix_u[uid + 1] - st_ix_u[uid]
-		st_out = st_ix_out[u]
-		for i in range(n_uid):
-			out[st_out + i] = ix_i[st_ix_u[uid] + i]
+	with nogil:
+		for u in prange(nU, schedule='dynamic', num_threads=nthreads):
+			uid = u_arr[u]
+			n_uid = st_ix_u[uid + 1] - st_ix_u[uid]
+			st_out = st_ix_out[u]
+			for i in range(n_uid):
+				out[st_out + i] = ix_i[st_ix_u[uid] + i]
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.nonecheck(False)
 @cython.cdivision(True)
-cdef void predict_multiple(real_t* out, real_t* M1, real_t* M2, ind_type* ix_u, ind_type* ix_i, ind_type n, int k, int nthreads) nogil:
+cdef void predict_multiple(real_t* out, real_t* M1, real_t* M2, ind_type* ix_u, ind_type* ix_i, ind_type n, int k, int nthreads) noexcept nogil:
 	
 	cdef int one = 1
 	cdef ind_type kszt = k
 	cdef ind_type i
-	for i in prange(n, schedule='static', num_threads=nthreads):
-		out[i] = tdot(&k, &M1[ix_u[i] * kszt], &one, &M2[ix_i[i] * kszt], &one)
+	with nogil:
+		for i in prange(n, schedule='static', num_threads=nthreads):
+			out[i] = tdot(&k, &M1[ix_u[i] * kszt], &one, &M2[ix_i[i] * kszt], &one)
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.nonecheck(False)
 @cython.cdivision(True)
-cdef long_double_type sum_prediction(real_t* M1, real_t* M2, ind_type* ix_u, ind_type* ix_i, ind_type n, int k, int nthreads) nogil:
+cdef long_double_type sum_prediction(real_t* M1, real_t* M2, ind_type* ix_u, ind_type* ix_i, ind_type n, int k, int nthreads) noexcept nogil:
 	
 	cdef long_double_type out = 0
 	cdef int one = 1
 	cdef ind_type kszt = k
 	cdef ind_type i
-	for i in prange(n, schedule='static', num_threads=nthreads):
-		out += tdot(&k, &M1[ix_u[i] * kszt], &one, &M2[ix_i[i] * kszt], &one)
-	return out
+	with nogil:
+		for i in prange(n, schedule='static', num_threads=nthreads):
+			out += tdot(&k, &M1[ix_u[i] * kszt], &one, &M2[ix_i[i] * kszt], &one)
+		return out
 
 
 ### Printing output
