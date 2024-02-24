@@ -3,8 +3,10 @@ import multiprocessing, os, warnings
 from . import cython_loops_float, cython_loops_double, _check_openmp
 import ctypes, types, inspect
 from scipy.sparse import coo_array, issparse
-### TODO: don't do this, use iloc/loc and make copies instead
-pd.options.mode.chained_assignment = None
+
+# TODO: don't rely on pandas DFs internally for keeping track of a COO matrix.
+# Should keep arrays directly and only invoke pd.Categorival / pd.factorize
+# when needed.
 
 class HPF:
 	"""
@@ -406,7 +408,7 @@ class HPF:
 		self._process_data(counts_df)
 		if self.verbose:
 			self._print_data_info()
-		if (val_set is not None) and (self.stop_crit!='diff-norm') and (self.stop_crit!='train-llk'):
+		if (val_set is not None) and (self.stop_crit not in ["diff-norm", "train-llk"]):
 			self._process_valset(val_set)
 		else:
 			self.val_set = None
@@ -435,15 +437,14 @@ class HPF:
 		if isinstance(input_df, np.ndarray):
 			assert len(input_df.shape) > 1
 			assert input_df.shape[1] >= 3
-			input_df = pd.DataFrame(input_df[:, :3])
-			input_df.columns = ['UserId', 'ItemId', "Count"]
+			input_df = pd.DataFrame(input_df[:, :3], copy=True, columns=["UserId", "ItemId", "Count"])
 			
-		elif input_df.__class__.__name__ == 'DataFrame':
+		elif isinstance(input_df, pd.DataFrame):
 			assert input_df.shape[0] > 0
-			assert 'UserId' in input_df.columns.values
-			assert 'ItemId' in input_df.columns.values
-			assert 'Count' in input_df.columns.values
-			input_df = input_df[['UserId', 'ItemId', 'Count']]
+			assert 'UserId' in input_df.columns
+			assert 'ItemId' in input_df.columns
+			assert 'Count' in input_df.columns
+			input_df = input_df[["UserId", "ItemId", "Count"]].copy()
 			
 		elif issparse(input_df) and (input_df.format == "coo"):
 			self.nusers = input_df.shape[0]
@@ -452,7 +453,7 @@ class HPF:
 				'UserId' : input_df.row,
 				'ItemId' : input_df.col,
 				'Count' : input_df.data
-				})
+			}, copy=False)
 			self.reindex = False
 			calc_n = False
 		else:
@@ -463,27 +464,23 @@ class HPF:
 		else:
 			thr = 0.9
 		self.input_df = input_df
-		obs_zero = self.input_df.Count.values <= thr
+		obs_zero = self.input_df["Count"] <= thr
 		if obs_zero.sum() > 0:
-			msg = "'counts_df' contains observations with a count value less than 1, these will be ignored."
-			msg += " Any user or item associated exclusively with zero-value observations will be excluded."
-			msg += " If using 'reindex=False', make sure that your data still meets the necessary criteria."
-			msg += " If you still want to use these observations, set 'stop_crit' to 'diff-norm' or 'maxiter'."
-			warnings.warn(msg)
+			warnings.warn(
+				"'counts_df' contains observations with a count value less than 1, these will be ignored."
+				" Any user or item associated exclusively with zero-value observations will be excluded."
+				" If using 'reindex=False', make sure that your data still meets the necessary criteria."
+				" If you still want to use these observations, set 'stop_crit' to 'diff-norm' or 'maxiter'."
+			)
 			self.input_df = self.input_df.loc[~obs_zero]
 			
 		if self.reindex:
-			self.input_df['UserId'], self.user_mapping_ = pd.factorize(self.input_df.UserId)
-			self.input_df['ItemId'], self.item_mapping_ = pd.factorize(self.input_df.ItemId)
-			### https://github.com/pandas-dev/pandas/issues/30618
-			if self.user_mapping_.__class__.__name__ == "CategoricalIndex":
-				self.user_mapping_ = self.user_mapping_.to_numpy()
-			if self.item_mapping_.__class__.__name__ == "CategoricalIndex":
-				self.item_mapping_ = self.item_mapping_.to_numpy()
+			self.input_df["UserId"], self.user_mapping_ = pd.factorize(self.input_df.UserId)
+			self.input_df["ItemId"], self.item_mapping_ = pd.factorize(self.input_df.ItemId)
+			self.user_mapping_ = np.require(self.user_mapping_, requirements=["ENSUREARRAY"]).reshape(-1)
+			self.item_mapping_ = np.require(self.item_mapping_, requirements=["ENSUREARRAY"]).reshape(-1)
 			self.nusers = self.user_mapping_.shape[0]
 			self.nitems = self.item_mapping_.shape[0]
-			self.user_mapping_ = np.array(self.user_mapping_).reshape(-1)
-			self.item_mapping_ = np.array(self.item_mapping_).reshape(-1)
 			if (self.save_folder is not None) and self.reindex:
 				if self.verbose:
 					print("\nSaving user and item mappings...\n")
@@ -529,15 +526,14 @@ class HPF:
 		if isinstance(val_set, np.ndarray):
 			assert len(val_set.shape) > 1
 			assert val_set.shape[1] >= 3
-			self.val_set = pd.DataFrame(val_set[:, :3])
-			self.val_set.columns = ['UserId', 'ItemId', "Count"]
+			self.val_set = pd.DataFrame(val_set[:, :3], copy=True, columns = ["UserId", "ItemId", "Count"])
 			
-		elif val_set.__class__.__name__ == 'DataFrame':
+		elif isinstance(val_set, pd.DataFrame):
 			assert val_set.shape[0] > 0
-			assert 'UserId' in val_set.columns.values
-			assert 'ItemId' in val_set.columns.values
-			assert 'Count' in val_set.columns.values
-			self.val_set = val_set[['UserId', 'ItemId', 'Count']]
+			assert 'UserId' in val_set.columns
+			assert 'ItemId' in val_set.columns
+			assert 'Count' in val_set.columns
+			self.val_set = val_set[["UserId", "ItemId", "Count"]].copy()
 
 		elif issparse(val_set) and (val_set.format == "coo"):
 			assert val_set.shape[0] <= self.nusers
@@ -546,7 +542,7 @@ class HPF:
 				'UserId' : val_set.row,
 				'ItemId' : val_set.col,
 				'Count'  : val_set.data
-				})
+			}, copy=False)
 		else:
 			raise ValueError("'val_set' must be a pandas data frame, numpy array, or sparse coo_array.")
 			
@@ -554,10 +550,11 @@ class HPF:
 			thr = 0
 		else:
 			thr = 0.9
-		obs_zero = self.val_set.Count.values <= thr
+		obs_zero = self.val_set["Count"] <= thr
 		if obs_zero.sum() > 0:
-			msg = "'val_set' contains observations with a count value less than 1, these will be ignored."
-			warnings.warn(msg)
+			warnings.warn(
+				"'val_set' contains observations with a count value less than 1, these will be ignored."
+			)
 			self.val_set = self.val_set.loc[~obs_zero]
 
 		if self.reindex:
@@ -591,10 +588,17 @@ class HPF:
 		cython_loops = cython_loops_float if self.use_float else cython_loops_double
 		if self.verbose and for_partial_fit:
 			print("Creating user indices for stochastic optimization...")
-		X = coo_array((self.input_df.Count.values, (self.input_df.UserId.values, self.input_df.ItemId.values)), shape=(self.nusers, self.nitems)).tocsr()
+		X = coo_array(
+			(
+				self.input_df["Count"].to_numpy(copy=False),
+				(self.input_df["UserId"].to_numpy(copy=False), self.input_df["ItemId"].to_numpy(copy=False))
+			),
+			shape=(self.nusers, self.nitems),
+			dtype=ctypes.c_float if self.use_float else ctypes.c_double
+		).tocsr()
 		self._n_seen_by_user = X.indptr[1:] - X.indptr[:-1]
 		if for_partial_fit:
-			self._st_ix_user = X.indptr.astype(cython_loops.obj_ind_type)
+			self._st_ix_user = np.require(X.indptr, dtype=cython_loops.obj_ind_type, requirements=["ENSUREARRAY", "C_CONTIGUOUS"])
 			self.input_df.sort_values('UserId', inplace=True)
 		else:
 			self._st_ix_user = X.indptr[:-1]
@@ -634,9 +638,9 @@ class HPF:
 		if self.val_set is None:
 			use_valset = cython_loops.cast_int(0)
 			self.val_set = pd.DataFrame(np.empty((0,3)), columns=['UserId','ItemId','Count'])
-			self.val_set['UserId'] = self.val_set.UserId.astype(cython_loops.obj_ind_type)
-			self.val_set['ItemId'] = self.val_set.ItemId.astype(cython_loops.obj_ind_type)
-			self.val_set['Count'] = self.val_set.Count.values.astype(cython_loops.c_real_t)
+			self.val_set['UserId'] = self.val_set["UserId"].to_numpy(copy=False, dtype=cython_loops.obj_ind_type)
+			self.val_set['ItemId'] = self.val_set["ItemId"].to_numpy(copy=False, dtype=cython_loops.obj_ind_type)
+			self.val_set['Count'] = self.val_set["Count"].to_numpy(copy=False, dtype=cython_loops.c_real_t)
 		else:
 			use_valset = cython_loops.cast_int(1)
 
@@ -646,7 +650,9 @@ class HPF:
 		self.niter, temp, self.train_llk = cython_loops.fit_hpf(
 			self.a, self.a_prime, self.b_prime,
 			self.c, self.c_prime, self.d_prime,
-			self.input_df.Count.values, self.input_df.UserId.values, self.input_df.ItemId.values,
+			np.require(self.input_df["Count"].to_numpy(copy=False), dtype=cython_loops.c_real_t, requirements=["ENSUREARRAY", "C_CONTIGUOUS"]),
+			np.require(self.input_df["UserId"].to_numpy(copy=False), dtype=cython_loops.obj_ind_type, requirements=["ENSUREARRAY", "C_CONTIGUOUS"]),
+			np.require(self.input_df["ItemId"].to_numpy(copy=False), dtype=cython_loops.obj_ind_type, requirements=["ENSUREARRAY", "C_CONTIGUOUS"]),
 			self.Theta, self.Beta,
 			self.maxiter, self.stop_crit, self.check_every, self.stop_thr,
 			self.users_per_batch, self.items_per_batch,
@@ -655,7 +661,9 @@ class HPF:
 			self.save_folder, self.random_seed, self.verbose,
 			self.ncores, cython_loops.cast_int(self.allow_inconsistent_math),
 			use_valset,
-			self.val_set.Count.values, self.val_set.UserId.values, self.val_set.ItemId.values,
+			np.require(self.val_set["Count"].to_numpy(copy=False), dtype=cython_loops.c_real_t, requirements=["ENSUREARRAY", "C_CONTIGUOUS"]),
+			np.require(self.val_set["UserId"].to_numpy(copy=False), dtype=cython_loops.obj_ind_type, requirements=["ENSUREARRAY", "C_CONTIGUOUS"]),
+			np.require(self.val_set["ItemId"].to_numpy(copy=False), dtype=cython_loops.obj_ind_type, requirements=["ENSUREARRAY", "C_CONTIGUOUS"]),
 			cython_loops.cast_int(self.full_llk), cython_loops.cast_int(self.keep_all_objs),
 			cython_loops.cast_int(self.alloc_full_phi)
 			)
@@ -674,34 +682,33 @@ class HPF:
 	def _process_data_single(self, counts_df):
 		assert self.is_fitted
 		assert self.keep_all_objs
+		
 		if isinstance(counts_df, np.ndarray):
 			assert len(counts_df.shape) > 1
 			assert counts_df.shape[1] >= 2
-			counts_df = counts_df.values[:,:2]
-			counts_df.columns = ['ItemId', "Count"]
-			
-		if counts_df.__class__.__name__ == 'DataFrame':
+			counts_df = pd.DataFrame(counts_df[:,:2], columns=["ItemId", "Count"], copy=True)
+		elif isinstance(counts_df, pd.DataFrame):
 			assert counts_df.shape[0] > 0
-			assert 'ItemId' in counts_df.columns.values
-			assert 'Count' in counts_df.columns.values
-			counts_df = counts_df[['ItemId', 'Count']]
+			assert "ItemId" in counts_df.columns
+			assert "Count" in counts_df.columns
+			counts_df = counts_df[["ItemId", "Count"]].copy()
 		else:
 			raise ValueError("'counts_df' must be a pandas data frame or a numpy array")
 			
 		if self.reindex:
 			if self.produce_dicts:
 				try:
-					counts_df['ItemId'] = counts_df.ItemId.map(lambda x: self.item_dict_[x])
+					counts_df["ItemId"] = counts_df["ItemId"].map(lambda x: self.item_dict_[x])
 				except Exception:
 					raise ValueError("Can only make calculations for items that were in the training set.")
 			else:
-				counts_df['ItemId'] = pd.Categorical(counts_df.ItemId.values, self.item_mapping_).codes
+				counts_df["ItemId"] = pd.Categorical(counts_df["ItemId"].to_numpy(copy=False), self.item_mapping_).codes
 				if (counts_df.ItemId == -1).sum() > 0:
 					raise ValueError("Can only make calculations for items that were in the training set.")
 
 		cython_loops = cython_loops_float if self.use_float else cython_loops_double
-		counts_df['ItemId'] = counts_df.ItemId.values.astype(cython_loops.obj_ind_type)
-		counts_df['Count'] = counts_df.Count.values.astype(cython_loops.c_real_t)
+		counts_df["ItemId"] = np.require(counts_df["ItemId"], dtype=cython_loops.obj_ind_type)
+		counts_df["Count"] = np.require(counts_df["Count"], dtype=cython_loops.c_real_t)
 		return counts_df
 
 	def partial_fit(self, counts_df, batch_type='users', step_size=None,
@@ -784,13 +791,16 @@ class HPF:
 		if self.keep_data:
 			try:
 				self.seen
-				msg = "When using 'partial_fit', the list of items seen by each user is not updated "
-				msg += "with the data passed here."
-				warnings.warn(msg)
+				warnings.warn(
+					"When using 'partial_fit', the list of items seen by each user is not updated "
+					"with the data passed here."
+				)
 			except Exception:
-				msg = "When fitting the model through 'partial_fit' without calling 'fit' beforehand, "
-				msg += "'keep_data' will be forced to False."
 				warnings.warn(msg)
+				warnings.warn(
+					"When fitting the model through 'partial_fit' without calling 'fit' beforehand, "
+					"'keep_data' will be forced to False."
+				)
 				self.keep_data = False
 
 		assert batch_type in ['users', 'items']
@@ -843,29 +853,28 @@ class HPF:
 				random_seed = int(random_seed)
 			assert isinstance(random_seed, int)
 
-		if counts_df.__class__.__name__ == "ndarray":
-			counts_df = pd.DataFrame(counts_df)
-			counts_df.columns[:3] = ['UserId', 'ItemId', 'Count']
+		if isinstance(counts_df, np.ndarray):
+			counts_df = pd.DataFrame(counts_df[:,:3], copy=False, columns=["UserId", "ItemId", "Count"])
 
-		assert counts_df.__class__.__name__ == "DataFrame"
-		assert 'UserId' in counts_df.columns.values
-		assert 'ItemId' in counts_df.columns.values
-		assert 'Count' in counts_df.columns.values
+		assert isinstance(counts_df, pd.DataFrame)
+		assert 'UserId' in counts_df.columns
+		assert 'ItemId' in counts_df.columns
+		assert 'Count' in counts_df.columns
 		assert counts_df.shape[0] > 0
 
 		cython_loops = cython_loops_float if self.use_float else cython_loops_double
-		Y_batch = counts_df.Count.values.astype(cython_loops.c_real_t)
-		ix_u_batch = counts_df.UserId.values.astype(cython_loops.obj_ind_type)
-		ix_i_batch = counts_df.ItemId.values.astype(cython_loops.obj_ind_type)
+		Y_batch = np.require(Y_batch, dtype=cython_loops.c_real_t, requirements=["ENSUREARRAY", "C_CONTIGUOUS"])
+		ix_u_batch = np.require(ix_u_batch, dtype=cython_loops.obj_ind_type, requirements=["ENSUREARRAY", "C_CONTIGUOUS"])
+		ix_i_batch = np.require(ix_i_batch, dtype=cython_loops.obj_ind_type, requirements=["ENSUREARRAY", "C_CONTIGUOUS"])
 
 		if users_in_batch is None:
 			users_in_batch = np.unique(ix_u_batch)
 		else:
-			users_in_batch = np.array(users_in_batch).astype(cython_loops.obj_ind_type)
+			users_in_batch = np.require(users_in_batch, dtype=cython_loops.obj_ind_type, requirements=["ENSUREARRAY", "C_CONTIGUOUS"])
 		if items_in_batch is None:
 			items_in_batch = np.unique(ix_i_batch)
 		else:
-			items_in_batch = np.array(items_in_batch).astype(cython_loops.obj_ind_type)
+			items_in_batch = np.require(items_in_batch, dtype=cython_loops.obj_ind_type, requirements=["ENSUREARRAY", "C_CONTIGUOUS"])
 
 		if (self.Theta is None) or (self.Beta is None):
 			self._cast_before_fit()
@@ -1027,18 +1036,18 @@ class HPF:
 		cython_loops = cython_loops_float if self.use_float else cython_loops_double
 		Theta = np.empty(self.k, dtype = cython_loops.c_real_t)
 		temp = cython_loops.calc_user_factors(
-								 self.a, self.a_prime, self.b_prime,
-								 self.c, self.c_prime, self.d_prime,
-								 counts_df.Count.values,
-								 counts_df.ItemId.values,
-								 Theta, self.Beta,
-								 self.Lambda_shp,
-								 self.Lambda_rte,
-								 cython_loops.cast_ind_type(counts_df.shape[0]), cython_loops.cast_ind_type(self.k),
-								 cython_loops.cast_int(int(maxiter)), cython_loops.cast_int(ncores),
-								 cython_loops.cast_int(int(random_seed)), cython_loops.cast_real_t(stop_thr),
-								 cython_loops.cast_int(bool(return_all))
-								 )
+			self.a, self.a_prime, self.b_prime,
+			self.c, self.c_prime, self.d_prime,
+			np.require(counts_df["Count"].to_numpy(copy=False), dtype=cython_loops.c_real_t, requirements=["ENSUREARRAY", "C_CONTIGUOUS"]),
+			np.require(counts_df["ItemId"].to_numpy(copy=False), dtype=cython_loops.obj_ind_type, requirements=["ENSUREARRAY", "C_CONTIGUOUS"]),
+			Theta, self.Beta,
+			self.Lambda_shp,
+			self.Lambda_rte,
+			cython_loops.cast_ind_type(counts_df.shape[0]), cython_loops.cast_ind_type(self.k),
+			cython_loops.cast_int(int(maxiter)), cython_loops.cast_int(ncores),
+			cython_loops.cast_int(int(random_seed)), cython_loops.cast_real_t(stop_thr),
+			cython_loops.cast_int(bool(return_all))
+		)
 
 		if np.isnan(Theta).sum() > 0:
 			raise ValueError("NaNs encountered in the result. Failed to produce latent factors.")
@@ -1120,7 +1129,7 @@ class HPF:
 		cython_loops = cython_loops_float if self.use_float else cython_loops_double
 		if update_all_params:
 			counts_df['UserId'] = user_id
-			counts_df['UserId'] = counts_df.UserId.astype(cython_loops.obj_ind_type)
+			counts_df['UserId'] = np.require(counts_df["UserId"], dtype=cython_loops.obj_ind_type)
 			self.partial_fit(counts_df, new_users=(not update_existing))
 			Theta_prev = self.Theta[-1].copy()
 			for i in range(maxiter - 1):
@@ -1134,18 +1143,18 @@ class HPF:
 			## calculating the latent factors
 			Theta = np.empty(self.k, dtype = cython_loops.c_real_t)
 			temp = cython_loops.calc_user_factors(
-								 self.a, self.a_prime, self.b_prime,
-								 self.c, self.c_prime, self.d_prime,
-								 counts_df.Count.values,
-								 counts_df.ItemId.values,
-								 Theta, self.Beta,
-								 self.Lambda_shp,
-								 self.Lambda_rte,
-								 cython_loops.cast_ind_type(counts_df.shape[0]), cython_loops.cast_ind_type(self.k),
-								 cython_loops.cast_int(maxiter), cython_loops.cast_int(ncores),
-								 cython_loops.cast_int(random_seed), cython_loops.cast_int(stop_thr),
-								 cython_loops.cast_int(self.keep_all_objs)
-								 )
+				self.a, self.a_prime, self.b_prime,
+				self.c, self.c_prime, self.d_prime,
+				np.require(counts_df["Count"].to_numpy(copy=False), dtype=cython_loops.c_real_t, requirements=["ENSUREARRAY", "C_CONTIGUOUS"]),
+				np.require(counts_df["ItemId"].to_numpy(copy=False), dtype=cython_loops.obj_ind_type, requirements=["ENSUREARRAY", "C_CONTIGUOUS"]),
+				Theta, self.Beta,
+				self.Lambda_shp,
+				self.Lambda_rte,
+				cython_loops.cast_ind_type(counts_df.shape[0]), cython_loops.cast_ind_type(self.k),
+				cython_loops.cast_int(maxiter), cython_loops.cast_int(ncores),
+				cython_loops.cast_int(random_seed), cython_loops.cast_int(stop_thr),
+				cython_loops.cast_int(self.keep_all_objs)
+			)
 
 			if np.isnan(Theta).sum() > 0:
 				raise ValueError("NaNs encountered in the result. Failed to produce latent factors.")
@@ -1177,12 +1186,12 @@ class HPF:
 			if update_existing:
 				n_seen_by_user_before = self._n_seen_by_user[user_id]
 				self._n_seen_by_user[user_id] = counts_df.shape[0]
-				self.seen = np.r_[self.seen[:user_id], counts_df.ItemId.values, self.seen[(user_id + 1):]]
+				self.seen = np.r_[self.seen[:user_id], counts_df["ItemId"].to_numpy(copy=False), self.seen[(user_id + 1):]]
 				self._st_ix_user[(user_id + 1):] += self._n_seen_by_user[user_id] - n_seen_by_user_before
 			else:
 				self._n_seen_by_user = np.r_[self._n_seen_by_user, np.array(counts_df.shape[0])]
 				self._st_ix_user = np.r_[self._st_ix_user, self.seen.shape[0]]
-				self.seen = np.r_[self.seen, counts_df.ItemId.values]
+				self.seen = np.r_[self.seen, counts_df["ItemId"].to_numpy(copy=False)]
 
 		return True
 	
@@ -1204,22 +1213,16 @@ class HPF:
 			Item(s) for which to predict for each user.
 		"""
 		assert self.is_fitted
-		if isinstance(user, list) or isinstance(user, tuple):
-			user = np.array(user)
-		if isinstance(item, list) or isinstance(item, tuple):
-			item = np.array(item)
-		if user.__class__.__name__=='Series':
-			user = user.values
-		if item.__class__.__name__=='Series':
-			item = item.values
+		if not np.isscalar(user):
+			user = np.require(user, requirements=["ENSUREARRAY"]).reshape(-1)
+		if not np.isscalar(item):
+			item = np.require(item, requirements=["ENSUREARRAY"]).reshape(-1)
 			
 		if isinstance(user, np.ndarray):
-			if len(user.shape) > 1:
-				user = user.reshape(-1)
 			assert user.shape[0] > 0
 			if self.reindex:
 				if user.shape[0] > 1:
-					user = pd.Categorical(user, self.user_mapping_).codes
+					user = pd.Categorical(user, self.user_mapping_).codes.to_numpy(copy=False)
 				else:
 					if self.user_dict_ is not None:
 						try:
@@ -1240,12 +1243,10 @@ class HPF:
 			user = np.array([user])
 			
 		if isinstance(item, np.ndarray):
-			if len(item.shape) > 1:
-				item = item.reshape(-1)
 			assert item.shape[0] > 0
 			if self.reindex:
 				if item.shape[0] > 1:
-					item = pd.Categorical(item, self.item_mapping_).codes
+					item = pd.Categorical(item, self.item_mapping_).codes.to_numpy(copy=False)
 				else:
 					if self.item_dict_ is not None:
 						try:
@@ -1276,16 +1277,16 @@ class HPF:
 			cython_loops = cython_loops_float if self.use_float else cython_loops_double
 			nan_entries = (user == -1) | (item == -1)
 			if nan_entries.sum() == 0:
-				if user.dtype != cython_loops.obj_ind_type:
-					user = user.astype(cython_loops.obj_ind_type)
-				if item.dtype != cython_loops.obj_ind_type:
-					item = item.astype(cython_loops.obj_ind_type)
+				user = np.require(user, dtype=cython_loops.obj_ind_type, requirements=["ENSUREARRAY", "C_CONTIGUOUS"])
+				item = np.require(item, dtype=cython_loops.obj_ind_type, requirements=["ENSUREARRAY", "C_CONTIGUOUS"])
 				return cython_loops.predict_arr(self.Theta, self.Beta, user, item, self.ncores)
 			else:
 				non_na_user = user[~nan_entries]
 				non_na_item = item[~nan_entries]
+				non_na_user = np.require(non_na_user, dtype=cython_loops.obj_ind_type, requirements=["ENSUREARRAY", "C_CONTIGUOUS"])
+				non_na_item = np.require(non_na_item, dtype=cython_loops.obj_ind_type, requirements=["ENSUREARRAY", "C_CONTIGUOUS"])
 				out = np.empty(user.shape[0], dtype=self.Theta.dtype)
-				out[~nan_entries] = cython_loops.predict_arr(self.Theta, self.Beta, non_na_user.astype(cython_loops.obj_ind_type), non_na_item.astype(cython_loops.obj_ind_type), self.ncores)
+				out[~nan_entries] = cython_loops.predict_arr(self.Theta, self.Beta, non_na_user, non_na_item, self.ncores)
 				out[nan_entries] = np.nan
 				return out
 		
@@ -1353,30 +1354,22 @@ class HPF:
 					return rec
 
 		else:
-			if isinstance(items_pool, list) or isinstance(items_pool, tuple):
-				items_pool = np.array(items_pool)
-			if items_pool.__class__.__name__=='Series':
-				items_pool = items_pool.values
-			if isinstance(items_pool, np.ndarray):  
-				if len(items_pool.shape) > 1:
-					items_pool = items_pool.reshape(-1)
-				if self.reindex:
-					items_pool_reind = pd.Categorical(items_pool, self.item_mapping_).codes
-					nan_ix = (items_pool_reind == -1)
-					if nan_ix.sum() > 0:
-						items_pool_reind = items_pool_reind[~nan_ix]
-						msg = "There were " + ("%d" % int(nan_ix.sum())) + " entries from 'item_pool'"
-						msg += "that were not in the training data and will be exluded."
-						warnings.warn(msg)
-					del nan_ix
-					if items_pool_reind.shape[0] == 0:
-						raise ValueError("No items to recommend.")
-					elif items_pool_reind.shape[0] == 1:
-						raise ValueError("Only 1 item to recommend.")
-					else:
-						pass
-			else:
-				raise ValueError("'items_pool' must be an array.")
+			items_pool = np.require(items_pool, requirements=["ENSUREARRAY"]).reshape(-1)
+			if self.reindex:
+				items_pool_reind = pd.Categorical(items_pool, self.item_mapping_).codes.to_numpy(copy=False)
+				nan_ix = (items_pool_reind == -1)
+				if nan_ix.sum() > 0:
+					items_pool_reind = items_pool_reind[~nan_ix]
+					msg = "There were " + ("%d" % int(nan_ix.sum())) + " entries from 'item_pool'"
+					msg += "that were not in the training data and will be exluded."
+					warnings.warn(msg)
+				del nan_ix
+				if items_pool_reind.shape[0] == 0:
+					raise ValueError("No items to recommend.")
+				elif items_pool_reind.shape[0] == 1:
+					raise ValueError("Only 1 item to recommend.")
+				else:
+					pass
 
 			if self.reindex:
 				allpreds = - self.Theta[user].dot(self.Beta[items_pool_reind].T)
@@ -1433,15 +1426,19 @@ class HPF:
 		self._process_valset(input_df, valset=False)
 		cython_loops = cython_loops_float if self.use_float else cython_loops_double
 		self.ncores = cython_loops.cast_int(self.ncores)
-		out = {'llk': cython_loops.calc_llk(self.val_set.Count.values,
-											self.val_set.UserId.values,
-											self.val_set.ItemId.values,
-											self.Theta,
-											self.Beta,
-											self.k,
-											self.ncores,
-											cython_loops.cast_int(bool(full_llk))),
-			   'nobs':self.val_set.shape[0]}
+		out = {
+			'llk': cython_loops.calc_llk(
+				np.require(self.val_set["Count"].to_numpy(copy=False), dtype=cython_loops.c_real_t, requirements=["ENSUREARRAY", "C_CONTIGUOUS"]),
+				np.require(self.val_set["UserId"].to_numpy(copy=False), dtype=cython_loops.obj_ind_type, requirements=["ENSUREARRAY", "C_CONTIGUOUS"]),
+				np.require(self.val_set["ItemId"].to_numpy(copy=False), dtype=cython_loops.obj_ind_type, requirements=["ENSUREARRAY", "C_CONTIGUOUS"]),
+				self.Theta,
+				self.Beta,
+				self.k,
+				self.ncores,
+				cython_loops.cast_int(bool(full_llk))
+			),
+			  'nobs':self.val_set.shape[0]
+		}
 		del self.val_set
 		return out
 
