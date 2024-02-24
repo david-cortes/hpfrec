@@ -863,9 +863,9 @@ class HPF:
 		assert counts_df.shape[0] > 0
 
 		cython_loops = cython_loops_float if self.use_float else cython_loops_double
-		Y_batch = np.require(Y_batch, dtype=cython_loops.c_real_t, requirements=["ENSUREARRAY", "C_CONTIGUOUS"])
-		ix_u_batch = np.require(ix_u_batch, dtype=cython_loops.obj_ind_type, requirements=["ENSUREARRAY", "C_CONTIGUOUS"])
-		ix_i_batch = np.require(ix_i_batch, dtype=cython_loops.obj_ind_type, requirements=["ENSUREARRAY", "C_CONTIGUOUS"])
+		Y_batch = np.require(counts_df["Count"], dtype=cython_loops.c_real_t, requirements=["ENSUREARRAY", "C_CONTIGUOUS"])
+		ix_u_batch = np.require(counts_df["UserId"], dtype=cython_loops.obj_ind_type, requirements=["ENSUREARRAY", "C_CONTIGUOUS"])
+		ix_i_batch = np.require(counts_df["ItemId"], dtype=cython_loops.obj_ind_type, requirements=["ENSUREARRAY", "C_CONTIGUOUS"])
 
 		if users_in_batch is None:
 			users_in_batch = np.unique(ix_u_batch)
