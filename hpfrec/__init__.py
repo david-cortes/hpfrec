@@ -1222,7 +1222,8 @@ class HPF:
 			assert user.shape[0] > 0
 			if self.reindex:
 				if user.shape[0] > 1:
-					user = pd.Categorical(user, self.user_mapping_).codes.to_numpy(copy=False)
+					user = pd.Categorical(user, self.user_mapping_).codes
+					user = np.require(user, requirements=["ENSUREARRAY"])
 				else:
 					if self.user_dict_ is not None:
 						try:
@@ -1246,7 +1247,8 @@ class HPF:
 			assert item.shape[0] > 0
 			if self.reindex:
 				if item.shape[0] > 1:
-					item = pd.Categorical(item, self.item_mapping_).codes.to_numpy(copy=False)
+					item = pd.Categorical(item, self.item_mapping_).codes
+					item = np.require(item, requirements=["ENSUREARRAY"])
 				else:
 					if self.item_dict_ is not None:
 						try:
@@ -1356,7 +1358,8 @@ class HPF:
 		else:
 			items_pool = np.require(items_pool, requirements=["ENSUREARRAY"]).reshape(-1)
 			if self.reindex:
-				items_pool_reind = pd.Categorical(items_pool, self.item_mapping_).codes.to_numpy(copy=False)
+				items_pool_reind = pd.Categorical(items_pool, self.item_mapping_).codes
+				items_pool_reind = np.require(items_pool_reind, requirements=["ENSUREARRAY"])
 				nan_ix = (items_pool_reind == -1)
 				if nan_ix.sum() > 0:
 					items_pool_reind = items_pool_reind[~nan_ix]
