@@ -475,8 +475,8 @@ class HPF:
 			self.input_df = self.input_df.loc[~obs_zero]
 			
 		if self.reindex:
-			self.input_df["UserId"], self.user_mapping_ = pd.factorize(self.input_df.UserId)
-			self.input_df["ItemId"], self.item_mapping_ = pd.factorize(self.input_df.ItemId)
+			self.input_df["UserId"], self.user_mapping_ = pd.factorize(self.input_df["UserId"])
+			self.input_df["ItemId"], self.item_mapping_ = pd.factorize(self.input_df["ItemId"])
 			self.user_mapping_ = np.require(self.user_mapping_, requirements=["ENSUREARRAY"]).reshape(-1)
 			self.item_mapping_ = np.require(self.item_mapping_, requirements=["ENSUREARRAY"]).reshape(-1)
 			self.nusers = self.user_mapping_.shape[0]
@@ -488,8 +488,8 @@ class HPF:
 				pd.Series(self.item_mapping_).to_csv(os.path.join(self.save_folder, 'items.csv'), index=False)
 		else:
 			if calc_n:
-				self.nusers = self.input_df.UserId.max() + 1
-				self.nitems = self.input_df.ItemId.max() + 1
+				self.nusers = self.input_df["UserId"].max() + 1
+				self.nitems = self.input_df["ItemId"].max() + 1
 
 		if self.save_folder is not None:
 			with open(os.path.join(self.save_folder, "hyperparameters.txt"), "w") as pf:
@@ -507,11 +507,11 @@ class HPF:
 		
 		cython_loops = cython_loops_float if self.use_float else cython_loops_double
 		if self.input_df['Count'].dtype != cython_loops.c_real_t:
-			self.input_df['Count'] = self.input_df.Count.astype(cython_loops.c_real_t)
+			self.input_df['Count'] = self.input_df["Count"].astype(cython_loops.c_real_t)
 		if self.input_df['UserId'].dtype != cython_loops.obj_ind_type:
-			self.input_df['UserId'] = self.input_df.UserId.astype(cython_loops.obj_ind_type)
+			self.input_df['UserId'] = self.input_df["UserId"].astype(cython_loops.obj_ind_type)
 		if self.input_df['ItemId'].dtype != cython_loops.obj_ind_type:
-			self.input_df['ItemId'] = self.input_df.ItemId.astype(cython_loops.obj_ind_type)
+			self.input_df['ItemId'] = self.input_df["ItemId"].astype(cython_loops.obj_ind_type)
 
 		if self.users_per_batch != 0:
 			if self.nusers < self.users_per_batch:
@@ -558,9 +558,9 @@ class HPF:
 			self.val_set = self.val_set.loc[~obs_zero]
 
 		if self.reindex:
-			self.val_set['UserId'] = pd.Categorical(self.val_set.UserId, self.user_mapping_).codes
-			self.val_set['ItemId'] = pd.Categorical(self.val_set.ItemId, self.item_mapping_).codes
-			self.val_set = self.val_set.loc[(self.val_set.UserId != (-1)) & (self.val_set.ItemId != (-1))]
+			self.val_set['UserId'] = pd.Categorical(self.val_set["UserId"], self.user_mapping_).codes
+			self.val_set['ItemId'] = pd.Categorical(self.val_set["ItemId"], self.item_mapping_).codes
+			self.val_set = self.val_set.loc[(self.val_set["UserId"] != (-1)) & (self.val_set["ItemId"] != (-1))]
 			if self.val_set.shape[0] == 0:
 				if valset:
 					warnings.warn("Validation set has no combinations of users and items"+
@@ -577,11 +577,11 @@ class HPF:
 
 		cython_loops = cython_loops_float if self.use_float else cython_loops_double
 		if self.val_set['Count'].dtype != cython_loops.c_real_t:
-			self.val_set['Count'] = self.val_set.Count.astype(cython_loops.c_real_t)
+			self.val_set['Count'] = self.val_set["Count"].astype(cython_loops.c_real_t)
 		if self.val_set['UserId'].dtype != cython_loops.obj_ind_type:
-			self.val_set['UserId'] = self.val_set.UserId.astype(cython_loops.obj_ind_type)
+			self.val_set['UserId'] = self.val_set["UserId"].astype(cython_loops.obj_ind_type)
 		if self.val_set['ItemId'].dtype != cython_loops.obj_ind_type:
-			self.val_set['ItemId'] = self.val_set.ItemId.astype(cython_loops.obj_ind_type)
+			self.val_set['ItemId'] = self.val_set["ItemId"].astype(cython_loops.obj_ind_type)
 		return None
 			
 	def _store_metadata(self, for_partial_fit=False):
@@ -703,7 +703,7 @@ class HPF:
 					raise ValueError("Can only make calculations for items that were in the training set.")
 			else:
 				counts_df["ItemId"] = pd.Categorical(counts_df["ItemId"].to_numpy(copy=False), self.item_mapping_).codes
-				if (counts_df.ItemId == -1).sum() > 0:
+				if (counts_df["ItemId"] == -1).sum() > 0:
 					raise ValueError("Can only make calculations for items that were in the training set.")
 
 		cython_loops = cython_loops_float if self.use_float else cython_loops_double
