@@ -1,4 +1,4 @@
-#cython: language_level=3, legacy_implicit_noexcept=True
+#cython: freethreading_compatible=True, language_level=3, legacy_implicit_noexcept=True
 import ctypes
 from libc.math cimport HUGE_VAL, HUGE_VALL, HUGE_VALL as LD_HUGE_VAL
 

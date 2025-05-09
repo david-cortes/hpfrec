@@ -211,7 +211,7 @@ class build_ext_subclass( build_ext ):
 setup(
     name = 'hpfrec',
     packages = ['hpfrec'],
-    version = '0.2.14',
+    version = '0.2.14-1',
     description = 'Hierarchical Poisson matrix factorization for recommender systems',
     author = 'David Cortes',
     url = 'https://github.com/david-cortes/hpfrec',
